@@ -463,8 +463,12 @@ class Transformer(nn.Module):
             )
             mask = torch.triu(mask, diagonal=start_pos + 1).type_as(h)
 
-        for layer in self.layers:
+        context_vectors = []
+        for i, layer in enumerate(self.layers):
+            if i >= self.n_layers // 2:
+                break
+            
             h = layer(h, start_pos, freqs_cis, mask)
-        h = self.norm(h)
-        output = self.output(h).float()
-        return output
+            context_vectors.append(h)
+        
+        return context_vectors
