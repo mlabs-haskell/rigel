@@ -139,6 +139,8 @@ def main(
             "context_vectors": db_output
         }
         collection.insert_one(final_document)
+        
+        print("Processed ", article["section_name"])
 
 if __name__ == "__main__":
     fire.Fire(main)
