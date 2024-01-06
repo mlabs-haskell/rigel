@@ -3,7 +3,7 @@
 
 import math
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -439,7 +439,7 @@ class Transformer(nn.Module):
         )
 
     @torch.inference_mode()
-    def forward(self, tokens: torch.Tensor, start_pos: int):
+    def forward(self, tokens: torch.Tensor, start_pos: int) -> List[torch.Tensor]:
         """
         Perform a forward pass through the Transformer model.
 

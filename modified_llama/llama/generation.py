@@ -125,12 +125,8 @@ class Llama:
     def generate(
         self,
         prompt_tokens: List[List[int]],
-        max_gen_len: int,
-        temperature: float = 0.6,
-        top_p: float = 0.9,
-        logprobs: bool = False,
-        echo: bool = False,
-    ) -> list[torch.Tensor]:
+        max_gen_len: int = None
+    ) -> list[list[any]]:
         """
         Generate text sequences based on provided prompts using the language generation model.
 
@@ -150,11 +146,13 @@ class Llama:
             If logprobs is True, token log probabilities are computed for each generated token.
 
         """
+        if max_gen_len is None:
+            max_gen_len = self.model.params.max_seq_len - 1
         params = self.model.params
         bsz = len(prompt_tokens)
         assert bsz <= params.max_batch_size, (bsz, params.max_batch_size)
 
-        min_prompt_len = min(len(t) for t in prompt_tokens)
+        # min_prompt_len = min(len(t) for t in prompt_tokens)
         max_prompt_len = max(len(t) for t in prompt_tokens)
         assert max_prompt_len <= params.max_seq_len
         total_len = min(params.max_seq_len, max_gen_len + max_prompt_len)
@@ -163,14 +161,16 @@ class Llama:
         tokens = torch.full((bsz, total_len), pad_id, dtype=torch.long)
         for k, t in enumerate(prompt_tokens):
             tokens[k, : len(t)] = torch.tensor(t, dtype=torch.long)
-        if logprobs:
-            token_logprobs = torch.zeros_like(tokens, dtype=torch.float)
+        # if logprobs:
+        #     token_logprobs = torch.zeros_like(tokens, dtype=torch.float)
 
-        prev_pos = 0
-        eos_reached = torch.tensor([False] * bsz)
-        input_text_mask = tokens != pad_id
+        # prev_pos = 0
+        # eos_reached = torch.tensor([False] * bsz)
+        # input_text_mask = tokens != pad_id
         context_vectors = self.model.forward(tokens, 0)
-        return context_vectors
+        context_vectors = torch.tensor(context_vectors)
+        context_vectors.transpose(0, 1)
+        return context_vectors.tolist()
         # if min_prompt_len == total_len:
         #     logits = self.model.forward(tokens, prev_pos)
         #     token_logprobs = -F.cross_entropy(
@@ -226,6 +226,20 @@ class Llama:
         #     out_tokens.append(toks)
         #     out_logprobs.append(probs)
         # return (out_tokens, out_logprobs if logprobs else None)
+
+    def tokenize(
+        self, 
+        max_seq_len, 
+        prompts: List[Tuple[str, str]]
+    ) -> List[Tuple[str, int, List[int]]]:
+        output = []
+        for section, text in prompts:
+            tokens = self.tokenizer.encode(text, bos=True, eos=False)
+            overhang = max(0, len(tokens) - max_seq_len)
+            for i in range(overhang + 1):
+                output.append((section, i, tokens[i : max_seq_len + i]))
+                
+        return output
 
     def text_completion(
         self,
