@@ -1,8 +1,10 @@
 from collections.abc import Iterator
 import json
 import os
+import time
 
 import fire
+from tqdm import tqdm
 from pymongo import MongoClient
 from pymongo.collection import Collection
 
@@ -46,7 +48,7 @@ def document_iterator(collection: Collection) -> Iterator[dict]:
                     
 def generate_texts(article) -> Iterator[tuple[str, str]]:
     # Use a recursive function to fetch text from all child sections of the article
-    def flatten_article_tree(article):
+    def flatten_article_tree(article) -> list[tuple[str, str]]:
         texts = [(article["section_name"], article["text"])]
         for child in article["children"]:
             texts += flatten_article_tree(child)
@@ -98,16 +100,19 @@ def main(
     # Iterate through each unprocessed article, get its context vectors, and write to the db
     collection = get_collection()
     for article in document_iterator(collection):
+        start = time.time()
+        print("Processing", article["section_name"])
+        
         # Get the article texts and tokenize them
         texts = list(generate_texts(article))
         tokens = generator.tokenize(max_seq_len, texts)
         
         # Generate the context vectors for the documents
         context_vectors = []
-        for i in range(0, len(tokens), max_batch_size):
+        pbar = tqdm(range(0, len(tokens), max_batch_size))
+        for i in pbar:
             # Batch the tokenized texts
             batched_tokens = tokens[i : i + max_batch_size]
-            print(batched_tokens)
             batch_context_vectors = generator.generate(
                 [toks for _, _, toks in batched_tokens],
                 max_gen_len
@@ -118,9 +123,9 @@ def main(
                 context_vectors.append((scope, offset, batch_context_vectors[j]))
             
         # Construct the "context_vectors" field of the MongoDB document
-        db_output = []
         for scope, offset, cvs in context_vectors:
             document = {
+                "title": article["section_name"],
                 "text_offset": offset,
                 "context_vectors": cvs
             }
@@ -131,16 +136,10 @@ def main(
                 document["scope"] = "sections"
                 document["header_name"] = scope
                 
-            db_output.append(document)
-           
-        # Construct the full, final MongoDB document
-        final_document = {
-            "title": article["section_name"],
-            "context_vectors": db_output
-        }
-        collection.insert_one(final_document)
+            collection.insert_one(document)
         
-        print("Processed ", article["section_name"])
+        elapsed = time.time() - start
+        print(f"Finished processing {article['section_name']} in {elapsed} seconds")
 
 if __name__ == "__main__":
     fire.Fire(main)

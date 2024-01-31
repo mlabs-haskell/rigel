@@ -10,6 +10,11 @@ from typing import List, Literal, Optional, Tuple, TypedDict
 
 import torch
 import torch.nn.functional as F
+from fairscale.nn.model_parallel.initialize import (
+    get_model_parallel_rank,
+    initialize_model_parallel,
+    model_parallel_is_initialized,
+)
 
 from .model import ModelArgs, Transformer
 from .tokenizer import Tokenizer
@@ -76,30 +81,29 @@ class Llama:
             and loads the pre-trained model and tokenizer.
 
         """
-        # if not torch.distributed.is_initialized():
-        #     torch.distributed.init_process_group("gloo")
-        # if not model_parallel_is_initialized():
-        #     if model_parallel_size is None:
-        #         model_parallel_size = int(os.environ.get("WORLD_SIZE", 1))
-        #     initialize_model_parallel(model_parallel_size)
+        if not torch.distributed.is_initialized():
+            torch.distributed.init_process_group("nccl")
+        if not model_parallel_is_initialized():
+            if model_parallel_size is None:
+                model_parallel_size = int(os.environ.get("WORLD_SIZE", 1))
+            initialize_model_parallel(model_parallel_size)
 
-        # local_rank = int(os.environ.get("LOCAL_RANK", 0))
-        # torch.cuda.set_device(local_rank)
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        torch.cuda.set_device(local_rank)
 
         # seed must be the same in all processes
         torch.manual_seed(seed)
 
-        # if local_rank > 0:
-        #     sys.stdout = open(os.devnull, "w")
+        if local_rank > 0:
+            sys.stdout = open(os.devnull, "w")
 
         start_time = time.time()
         checkpoints = sorted(Path(ckpt_dir).glob("*.pth"))
         assert len(checkpoints) > 0, f"no checkpoint files found in {ckpt_dir}"
-        # assert model_parallel_size == len(
-        #     checkpoints
-        # ), f"Loading a checkpoint for MP={len(checkpoints)} but world size is {model_parallel_size}"
-        # ckpt_path = checkpoints[get_model_parallel_rank()]
-        ckpt_path = checkpoints[0]
+        assert model_parallel_size == len(
+            checkpoints
+        ), f"Loading a checkpoint for MP={len(checkpoints)} but world size is {model_parallel_size}"
+        ckpt_path = checkpoints[get_model_parallel_rank()]
         checkpoint = torch.load(ckpt_path, map_location="cpu")
         with open(Path(ckpt_dir) / "params.json", "r") as f:
             params = json.loads(f.read())
@@ -111,6 +115,7 @@ class Llama:
         )
         tokenizer = Tokenizer(model_path=tokenizer_path)
         model_args.vocab_size = tokenizer.n_words
+        torch.set_default_tensor_type(torch.cuda.HalfTensor)
         model = Transformer(model_args)
         model.load_state_dict(checkpoint, strict=False)
         print(f"Loaded in {time.time() - start_time:.2f} seconds")
@@ -157,7 +162,7 @@ class Llama:
         assert max_prompt_len <= params.max_seq_len
         total_len = min(params.max_seq_len, max_gen_len + max_prompt_len)
 
-        pad_id = self.tokenizer.pad_id
+        pad_id = 0
         tokens = torch.full((bsz, total_len), pad_id, dtype=torch.long)
         for k, t in enumerate(prompt_tokens):
             tokens[k, : len(t)] = torch.tensor(t, dtype=torch.long)
@@ -168,9 +173,8 @@ class Llama:
         # eos_reached = torch.tensor([False] * bsz)
         # input_text_mask = tokens != pad_id
         context_vectors = self.model.forward(tokens, 0)
-        context_vectors = torch.tensor(context_vectors)
-        context_vectors.transpose(0, 1)
-        return context_vectors.tolist()
+        context_vectors = context_vectors.tolist()
+        return context_vectors
         # if min_prompt_len == total_len:
         #     logits = self.model.forward(tokens, prev_pos)
         #     token_logprobs = -F.cross_entropy(
