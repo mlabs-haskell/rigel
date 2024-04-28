@@ -235,13 +235,11 @@ class Llama:
         self, 
         max_seq_len, 
         prompts: List[Tuple[str, str]]
-    ) -> List[Tuple[str, int, List[int]]]:
+    ) -> List[Tuple[str, List[int]]]:
         output = []
         for section, text in prompts:
             tokens = self.tokenizer.encode(text, bos=True, eos=False)
-            overhang = max(0, len(tokens) - max_seq_len)
-            for i in range(overhang + 1):
-                output.append((section, i, tokens[i : max_seq_len + i]))
+            output.append((section, tokens[:max_seq_len]))
                 
         return output
 

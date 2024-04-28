@@ -13,16 +13,13 @@ from modified_llama.llama import Llama
 CONNECTION_STRING = "mongodb://127.0.0.1"
 DATABASE_NAME = "rigel"
 COLLECTION_NAME = "context_vectors"
-ARTICLES_DIR = "parsed_articles"
 
 """
 schema:
 {
     "title": str,
     "context_vectors": [{
-        "scope": "full_without_headers" | "full_with_headers" | "sections",
-        "header_name"?: str,          # only if scope == sections
-        "text_offset": int,
+        "header_name"?: str, 
         "context_vectors": binData
     }]
 }
@@ -34,47 +31,35 @@ def get_collection():
     return client[DATABASE_NAME][COLLECTION_NAME]
 
 # A generating function that produces articles that haven't been processed yet
-def document_iterator(collection: Collection) -> Iterator[dict]:
-    for dirpath, _, files in os.walk(ARTICLES_DIR):
-        for file in files:
-            with open(os.path.join(dirpath, file), "r") as f:
-                # Interpret the article's JSON
-                text = f.read()
-                article = json.loads(text)
-                
-                # Only yield the article if it's not in the database yet
-                if collection.find_one({"title": article["section_name"]}) is None:
-                    yield article
+def document_iterator(
+    collection: Collection, 
+    article_list: list[str],
+    content_data_file: str,
+    offsets: dict[str, tuple[int, int]]
+) -> Iterator[dict]:
+    for article_title in article_list:
+        # Only yield the article if it's not in the database yet
+        if collection.find_one({"title": article_title}) is None:
+            with open(content_data_file, "r") as file:
+                # Get the article from the contents monofile
+                offset, length = offsets[article_title]
+                file.seek(offset)
+                article_json = file.read(length)
+
+                # Read as a JSON
+                article = json.loads(article_json)
+                yield article
                     
 def generate_texts(article) -> Iterator[tuple[str, str]]:
-    # Use a recursive function to fetch text from all child sections of the article
-    def flatten_article_tree(article) -> list[tuple[str, str]]:
-        texts = [(article["section_name"], article["text"])]
-        for child in article["children"]:
-            texts += flatten_article_tree(child)
-        return texts
-    all_section_texts = flatten_article_tree(article)
-    
-    # Generate full text without headers
-    text = "\n".join([t for _, t in all_section_texts])
-    yield ("full_without_headers", text)
-    
-    # Generate full text with headers
-    text_and_headers = []
-    for section_name, section_text in all_section_texts:
-        text_and_headers.append(section_name)
-        text_and_headers.append(section_text)
-    yield ("full_with_headers", "\n".join(text_and_headers))
-    
     # Generate text per section
     def get_text_by_section(section_name, article):
         if section_name == "":
-            yield ("root", article["text"])
             section_name = "root"
         else:
             subsection_name = article["section_name"]
             section_name = f"{section_name}\{subsection_name}"
-            yield (section_name, article["text"])
+
+        yield (section_name, article["text"])
             
         for child in article["children"]:
             yield from get_text_by_section(section_name, child)
@@ -83,10 +68,38 @@ def generate_texts(article) -> Iterator[tuple[str, str]]:
 def main(
     ckpt_dir: str,
     tokenizer_path: str,
+    content_data_file: str,
+    content_index_file: str,
+    article_list_file: str,
     max_seq_len: int = 128,
     max_gen_len: int = 64,
     max_batch_size: int = 4,
 ):
+    # Read the list of articles
+    article_list = []
+    with open(article_list_file, "r") as file:
+        for line in file:
+            article_list.append(line)
+
+    # Get offsets
+    curr_offset = None
+    curr_title = None
+    offsets: dict[str, tuple[int, int]] = {}
+    with open(content_index_file, "r") as file:
+        for line in file:
+            offset, title = line.split(": ", 1)
+            offset = int(offset)
+            if curr_offset is not None:
+                length = offset - curr_offset
+                offsets[curr_title] = (curr_offset, length)
+            curr_offset = offset
+            curr_title = title
+    
+    # Get final offset
+    content_data_file_stats = os.stat(content_data_file)
+    length = content_data_file_stats.st_size - curr_offset
+    offsets[curr_title] = (curr_offset, length)
+
     # Create the generator - very resource intensive
     print("Building generator")
     generator = Llama.build(
@@ -99,7 +112,7 @@ def main(
     
     # Iterate through each unprocessed article, get its context vectors, and write to the db
     collection = get_collection()
-    for article in document_iterator(collection):
+    for article in document_iterator(collection, article_list, content_data_file, offsets):
         start = time.time()
         print("Processing", article["section_name"])
         
@@ -114,32 +127,35 @@ def main(
             # Batch the tokenized texts
             batched_tokens = tokens[i : i + max_batch_size]
             batch_context_vectors = generator.generate(
-                [toks for _, _, toks in batched_tokens],
+                [toks for _, toks in batched_tokens],
                 max_gen_len
             )
             
             for j in range(len(batch_context_vectors)):
-                (scope, offset, _) = batched_tokens[j]
-                context_vectors.append((scope, offset, batch_context_vectors[j]))
+                (section, _) = batched_tokens[j]
+                context_vectors.append((section, batch_context_vectors[j]))
             
-        # Construct the "context_vectors" field of the MongoDB document
-        for scope, offset, cvs in context_vectors:
-            document = {
-                "title": article["section_name"],
-                "text_offset": offset,
+        # Construct the MongoDB document
+        document = {
+            "title": article["section_name"],
+            "context_vectors": []
+        }
+        for section, cvs in context_vectors:
+            new_cv = {
                 "context_vectors": cvs
             }
-            
-            if scope == "full_without_headers" or scope == "full_with_headers":
-                document["scope"] = scope
-            else:
-                document["scope"] = "sections"
-                document["header_name"] = scope
+
+            # No headers on main article summary
+            if section != "":
+                new_cv["header_name"] = section
                 
-            collection.insert_one(document)
+            document["context_vectors"].append(new_cv)
+                
+        collection.insert_one(document)
         
         elapsed = time.time() - start
         print(f"Finished processing {article['section_name']} in {elapsed} seconds")
 
 if __name__ == "__main__":
     fire.Fire(main)
+    
