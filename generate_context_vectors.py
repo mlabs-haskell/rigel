@@ -18,10 +18,8 @@ COLLECTION_NAME = "context_vectors"
 schema:
 {
     "title": str,
-    "context_vectors": [{
-        "header_name"?: str, 
-        "context_vectors": binData
-    }]
+    "header_name": str
+    "context_vector": binData
 }
 """
 
@@ -45,6 +43,9 @@ def document_iterator(
                 offset, length = offsets[article_title]
                 file.seek(offset)
                 article_json = file.read(length)
+                if "}{" in article_json:
+                    article_json, _ = article_json.split("}{")
+                    article_json += "}"
 
                 # Read as a JSON
                 article = json.loads(article_json)
@@ -79,7 +80,7 @@ def main(
     article_list = []
     with open(article_list_file, "r") as file:
         for line in file:
-            article_list.append(line)
+            article_list.append(line.strip())
 
     # Get offsets
     curr_offset = None
@@ -87,7 +88,7 @@ def main(
     offsets: dict[str, tuple[int, int]] = {}
     with open(content_index_file, "r") as file:
         for line in file:
-            offset, title = line.split(": ", 1)
+            offset, title = line.strip().split(": ", 1)
             offset = int(offset)
             if curr_offset is not None:
                 length = offset - curr_offset
@@ -136,22 +137,13 @@ def main(
                 context_vectors.append((section, batch_context_vectors[j]))
             
         # Construct the MongoDB document
-        document = {
-            "title": article["section_name"],
-            "context_vectors": []
-        }
-        for section, cvs in context_vectors:
-            new_cv = {
-                "context_vectors": cvs
-            }
-
-            # No headers on main article summary
-            if section != "":
-                new_cv["header_name"] = section
-                
-            document["context_vectors"].append(new_cv)
-                
-        collection.insert_one(document)
+        for section, context_vector in context_vectors:
+            document = {
+                "title": article["section_name"],
+                "context_vector": context_vector,
+                "header_name": section
+            }    
+            collection.insert_one(document)
         
         elapsed = time.time() - start
         print(f"Finished processing {article['section_name']} in {elapsed} seconds")
