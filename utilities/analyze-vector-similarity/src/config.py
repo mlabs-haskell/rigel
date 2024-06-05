@@ -8,6 +8,9 @@ DUMPS_DIR = "../../../dump/dl/"
 # The filename of the text file is the name of the root of the subgraph.
 GROUPS_DIR = "groups"
 
+# store outputs here
+OUT_DIR = "out"
+
 # These items have context vectors with length != 524288
 # Every other entry has the same length
 EXCLUDE_IDS = [
