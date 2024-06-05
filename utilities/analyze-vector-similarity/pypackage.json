@@ -3,6 +3,7 @@
   "dependencies": [
     "pymongo",
     "numpy",
-    "scikit-learn"
+    "scikit-learn",
+    "tqdm"
   ]
 }
