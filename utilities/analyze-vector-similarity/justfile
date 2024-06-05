@@ -1,0 +1,22 @@
+_list:
+	just -ul
+
+# Create a fast queryable DB of all the context vectors
+make_db:
+	python src/main_make_db.py
+
+# Verify that the entries in the DB and the original dump are the same
+test_db:
+	python src/test_db.py
+
+# Groupwise similarity index. Select random subset of articles from each group, and find the mean of cosine similarity of articles between the groups
+group_similarity:
+	python src/main_group_similarity.py
+
+# Calculate pairwise similarity index for a subset of the whole dataset, without partitioning them based on the groups.
+full_similarity_calculate:
+	python src/main_full_similarity_matrix.py
+
+# Sort the output of full similarity matrix and sort them in descending order of similarity
+full_similarity_analyze:
+	python src/main_full_similarity_analyze.py >out/full_similarity_analysis.txt

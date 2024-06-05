@@ -13,6 +13,7 @@ data = [json.loads(line) for line in tqdm(lines)]
 print("Sorting ..", file=sys.stderr)
 data.sort(key=lambda x: x["similarity_index"], reverse=True)
 
+# Remove some noise: similarity >=0.99 means they are the same article or the article is too short.
 data = filter(lambda x: x["similarity_index"] < 0.99, data)
 
 for item in data:
