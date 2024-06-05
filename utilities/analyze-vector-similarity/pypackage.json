@@ -1,0 +1,8 @@
+{
+  "venv_dir": "venv",
+  "dependencies": [
+    "pymongo",
+    "numpy",
+    "scikit-learn"
+  ]
+}
