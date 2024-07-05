@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+import hashlib
 import json
 import os
 import time
@@ -12,7 +13,6 @@ from modified_llama.llama import Llama
 
 CONNECTION_STRING = "mongodb://127.0.0.1"
 DATABASE_NAME = "rigel"
-COLLECTION_NAME = "context_vectors"
 
 """
 schema:
@@ -24,18 +24,26 @@ schema:
 """
 
 # Load the MongoDB collection we are saving the context vectors to
-def get_collection():
+def get_collection(article_name: str):
+    # Put the article into an effectively random collection
+    # This is done to improve Mongo performance
+    checksum = hashlib.md5(article_name.encode('utf-8')).hexdigest() 
+    collection_number = int(checksum, 16) % 100
+    collection_name = f"bin_{collection_number}"
+    
     client = MongoClient(CONNECTION_STRING)
-    return client[DATABASE_NAME][COLLECTION_NAME]
+    return client[DATABASE_NAME][collection_name]
 
 # A generating function that produces articles that haven't been processed yet
 def document_iterator(
-    collection: Collection, 
     article_list: list[str],
     content_data_file: str,
     offsets: dict[str, tuple[int, int]]
 ) -> Iterator[dict]:
     for article_title in article_list:
+        # Connect to collection
+        collection = get_collection(article_title)
+        
         # Only yield the article if it's not in the database yet
         if collection.find_one({"title": article_title}) is None:
             with open(content_data_file, "r") as file:
@@ -44,12 +52,15 @@ def document_iterator(
                 file.seek(offset)
                 article_json = file.read(length)
                 if "}{" in article_json:
-                    article_json, _ = article_json.split("}{")
+                    article_json, *_ = article_json.split("}{")
                     article_json += "}"
 
                 # Read as a JSON
                 article = json.loads(article_json)
-                yield article
+                yield collection, article
+        
+        else:
+            print(f"Skipping {article_title}")
                     
 def generate_texts(article) -> Iterator[tuple[str, str]]:
     # Generate text per section
@@ -112,8 +123,7 @@ def main(
     print("Built generator")
     
     # Iterate through each unprocessed article, get its context vectors, and write to the db
-    collection = get_collection()
-    for article in document_iterator(collection, article_list, content_data_file, offsets):
+    for collection, article in document_iterator(article_list, content_data_file, offsets):
         start = time.time()
         print("Processing", article["section_name"])
         
