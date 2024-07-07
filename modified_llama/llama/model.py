@@ -454,7 +454,7 @@ class Transformer(nn.Module):
         )
 
     @torch.inference_mode()
-    def forward(self, tokens: torch.Tensor, start_pos: int) -> torch.Tensor:
+    def forward(self, tokens: torch.Tensor, start_pos: int) -> list[torch.Tensor]:
         """
         Perform a forward pass through the Transformer model.
 
@@ -478,7 +478,8 @@ class Transformer(nn.Module):
             )
             mask = torch.triu(mask, diagonal=start_pos + 1).type_as(h)
 
-        for i, layer in enumerate(self.layers):
+        context_vectors_list = []
+        for _i, layer in enumerate(self.layers):
             h = layer(h, start_pos, freqs_cis, mask)
-            if i == (self.n_layers // 2) - 1:
-               return h
+            context_vectors_list.append(h)
+        return context_vectors_list
