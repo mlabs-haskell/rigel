@@ -137,10 +137,10 @@ def main(
                 context_vectors.append((section, batch_context_vectors[j]))
             
         # Construct the MongoDB document
-        for section, context_vector in context_vectors:
+        for section, context_vectors_list in context_vectors:
             document = {
                 "title": article["section_name"],
-                "context_vector": context_vector,
+                "context_vectors_list": context_vectors_list,
                 "header_name": section
             }    
             collection.insert_one(document)

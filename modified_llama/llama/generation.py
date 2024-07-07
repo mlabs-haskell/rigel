@@ -172,9 +172,9 @@ class Llama:
         # prev_pos = 0
         # eos_reached = torch.tensor([False] * bsz)
         # input_text_mask = tokens != pad_id
-        context_vectors = self.model.forward(tokens, 0)
-        context_vectors = context_vectors.tolist()
-        return context_vectors
+        context_vectors_list = self.model.forward(tokens, 0)
+        context_vectors_list = [x.tolist() for x in context_vectors_list]
+        return context_vectors_list
         # if min_prompt_len == total_len:
         #     logits = self.model.forward(tokens, prev_pos)
         #     token_logprobs = -F.cross_entropy(
