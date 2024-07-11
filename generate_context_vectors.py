@@ -143,16 +143,26 @@ def main(
             
         # Construct the MongoDB document
         for section, context_vectors_list in context_vectors:
-            document = {
-                "title": article["section_name"],
-                "context_vectors_list": context_vectors_list,
-                "header_name": section
-            }    
-            collection.insert_one(document)
+            # MongoDB fails to insert all context vectors into a single document due to size limits.
+            # Avg document size is 15x larger than the max allowed size.
+            # So I'm spliting the list of vectors into chunks and inserting them as multiple documents.
+            # I'm using 20 as the chunk size to allow some head room for large title or header_name values.
+            max_context_vector_list_size = len(context_vectors_list) // 20
+
+            documents = []
+            for i in range(0, len(context_vectors_list), max_context_vector_list_size):
+                context_vectors_list_chunk = context_vectors_list[i:i+max_context_vector_list_size]
+                document = {
+                    "title": article["section_name"],
+                    "header_name": section,
+                    "context_vectors_list": context_vectors_list_chunk,
+                }
+                documents.append(document)
+            collection.insert_many(documents)
         
         elapsed = time.time() - start
         print(f"Finished processing {article['section_name']} in {elapsed} seconds")
 
 if __name__ == "__main__":
     fire.Fire(main)
-    
+
