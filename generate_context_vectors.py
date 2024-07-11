@@ -127,14 +127,19 @@ def main(
         for i in pbar:
             # Batch the tokenized texts
             batched_tokens = tokens[i : i + max_batch_size]
-            batch_context_vectors = generator.generate(
+
+            # This will return a list of size (number_of_layers, number_of_batches)
+            # ie, list[i] will give us the context vectors at layer i.
+            batch_context_vectors_list = generator.generate(
                 [toks for _, toks in batched_tokens],
                 max_gen_len
             )
             
-            for j in range(len(batch_context_vectors)):
+            for j in range(len(batched_tokens)):
                 (section, _) = batched_tokens[j]
-                context_vectors.append((section, batch_context_vectors[j]))
+                # Get j'th batch for each layer
+                batch_context_vectors = [layer[j] for layer in batch_context_vectors_list]
+                context_vectors.append((section, batch_context_vectors))
             
         # Construct the MongoDB document
         for section, context_vectors_list in context_vectors:
