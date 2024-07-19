@@ -1,3 +1,5 @@
+fire
 numpy
+pymongo
 torch
 tqdm
