@@ -1,5 +1,7 @@
 fire
+nltk
 numpy
 pymongo
+scikit-learn
 torch
 tqdm

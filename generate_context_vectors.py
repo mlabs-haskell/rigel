@@ -30,7 +30,7 @@ def get_collection():
 
 # A generating function that produces articles that haven't been processed yet
 def document_iterator(
-    collection: Collection, 
+    collection: Collection,
     article_list: list[str],
     content_data_file: str,
     offsets: dict[str, tuple[int, int]]
@@ -50,7 +50,7 @@ def document_iterator(
                 # Read as a JSON
                 article = json.loads(article_json)
                 yield article
-                    
+
 def generate_texts(article) -> Iterator[tuple[str, str]]:
     # Generate text per section
     def get_text_by_section(section_name, article):
@@ -61,7 +61,7 @@ def generate_texts(article) -> Iterator[tuple[str, str]]:
             section_name = f"{section_name}\{subsection_name}"
 
         yield (section_name, article["text"])
-            
+
         for child in article["children"]:
             yield from get_text_by_section(section_name, child)
     yield from get_text_by_section("", article)
@@ -95,7 +95,7 @@ def main(
                 offsets[curr_title] = (curr_offset, length)
             curr_offset = offset
             curr_title = title
-    
+
     # Get final offset
     content_data_file_stats = os.stat(content_data_file)
     length = content_data_file_stats.st_size - curr_offset
@@ -110,17 +110,17 @@ def main(
         max_batch_size=max_batch_size,
     )
     print("Built generator")
-    
+
     # Iterate through each unprocessed article, get its context vectors, and write to the db
     collection = get_collection()
     for article in document_iterator(collection, article_list, content_data_file, offsets):
         start = time.time()
         print("Processing", article["section_name"])
-        
+
         # Get the article texts and tokenize them
         texts = list(generate_texts(article))
         tokens = generator.tokenize(max_seq_len, texts)
-        
+
         # Generate the context vectors for the documents
         context_vectors = []
         pbar = tqdm(range(0, len(tokens), max_batch_size))
@@ -131,23 +131,22 @@ def main(
                 [toks for _, toks in batched_tokens],
                 max_gen_len
             )
-            
+
             for j in range(len(batch_context_vectors)):
                 (section, _) = batched_tokens[j]
                 context_vectors.append((section, batch_context_vectors[j]))
-            
+
         # Construct the MongoDB document
         for section, context_vector in context_vectors:
             document = {
                 "title": article["section_name"],
                 "context_vector": context_vector,
                 "header_name": section
-            }    
+            }
             collection.insert_one(document)
-        
+
         elapsed = time.time() - start
         print(f"Finished processing {article['section_name']} in {elapsed} seconds")
 
 if __name__ == "__main__":
     fire.Fire(main)
-    
