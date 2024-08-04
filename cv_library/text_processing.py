@@ -17,12 +17,13 @@ from database_utils import (
 )
 
 def _tokenize(text: str) -> list[str]:
-    stemmer = PorterStemmer()
+    # Remove punctuation and lower case the text
     translate_table = dict((ord(char), None) for char in string.punctuation)
-
     text = text.translate(translate_table)
     text = text.lower()
 
+    # Tokenize the text, removing stop words and stemming all others
+    stemmer = PorterStemmer()
     words = word_tokenize(text)
     words = [w for w in words if w not in stopwords.words('english')]
     words = [stemmer.stem(w) for w in words]
@@ -34,9 +35,9 @@ def get_tfidf(
 ) -> list[list[float]]:
     tokens = map(lambda s: " ".join(_tokenize(s)), strings)
 
-    tfidf = TfidfVectorizer()
+    tfidf = TfidfVectorizer(max_df=0.9, min_df=0.1, max_features=1000)
     vectors = tfidf.fit_transform(tokens)
-    return vectors.toarray()
+    return vectors.toarray().tolist()
 
 def get_all_tfidf(
     contents_index_file: str,
@@ -51,19 +52,66 @@ def get_all_tfidf(
 
     # Get all strings
     texts_map = {}
-    for collection_name, document_id in get_documents_from_mongo(database):
-        doc = database[collection_name].find_one({"_id": document_id})
+    last_title = None
+    last_article = None
+    for doc in get_documents_from_mongo(database):
+        # Get article title and section header
+        document_id = doc['_id']
         title = doc["title"]
         header_name = doc["header_name"]
+
+        # Only process titles that are in both the db and the index file
         if title in contents_indices:
-            index = contents_indices[title]
-            try:
-                article = read_data(contents_data_file, index)
-                text = article['text']
-                texts_map[document_id] = text
-            except:
-                pass
-        print(f"Processed {title}\\{header_name}")
+            # Read the data from the contents file only if it hasn't been read
+            if last_title != title:
+                index = contents_indices[title]
+                last_title = title
+                try:
+                    article = read_data(contents_data_file, index)
+                    last_article = article
+                except:
+                    print(f"Could not parse {title}\\{header_name}")
+                    last_article = None
+                    continue
+
+            # Skip articles whose JSON can't be parsed
+            if last_article is None:
+                continue
+
+            # For the root, the text is the article's text field
+            if header_name == 'root':
+                text = last_article['text']
+
+            # Otherwise, look for the correct child
+            else:
+                headers = header_name.split('\\')
+                headers = headers[1:]
+                section = last_article
+
+                # Descend through the tree until we reach the proper section
+                for header in headers:
+                    found_section = False
+                    for child in section['children']:
+                        if child['section_name'] == header:
+                            section = child
+                            found_section = True
+                            break
+
+                    if not found_section:
+                        print(f"Could not find section {title}\\{header_name}")
+                        section = None
+                        break
+
+                # If the section could not be found, move on
+                if section is None:
+                    continue
+
+                text = section['text']
+            texts_map[str(document_id)] = text
+            print(f"Processed {title}\\{header_name}")
+
+        else:
+            print(f"Article {title} could not be found in the index file")
 
     # Do TFIDF vectorization
     tfidfs = get_tfidf(texts_map.values())
@@ -71,7 +119,7 @@ def get_all_tfidf(
 
     # Write to designated file
     with open(out_file, 'w') as file:
-        json.dump(document_tfidfs, file)
+        json.dump(document_tfidfs, file, indent=4)
 
 if __name__ == "__main__":
     fire.Fire(get_all_tfidf)
