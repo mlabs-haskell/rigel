@@ -93,8 +93,8 @@ def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
     Returns:
         torch.Tensor: Precomputed frequency tensor with complex exponentials.
 
-    
-        
+
+
 
     """
     freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
@@ -150,7 +150,7 @@ def apply_rotary_emb(
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: Tuple of modified query tensor and key tensor with rotary embeddings.
 
-        
+
 
     """
     xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2))
@@ -272,7 +272,8 @@ class Attention(nn.Module):
         """
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
-
+        kv = torch.cat([xk, xv], dim=-1)
+        #              1,      4,                 32,           128)
         xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
         xv = xv.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
@@ -301,7 +302,7 @@ class Attention(nn.Module):
         scores = F.softmax(scores.float(), dim=-1).type_as(xq)
         output = torch.matmul(scores, values)  # (bs, n_local_heads, seqlen, head_dim)
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
-        return self.wo(output)
+        return (self.wo(output), kv)
 
 
 class FeedForward(nn.Module):
@@ -403,11 +404,13 @@ class TransformerBlock(nn.Module):
             torch.Tensor: Output tensor after applying attention and feedforward layers.
 
         """
-        h = x + self.attention.forward(
+        (h, kv) = self.attention.forward(
             self.attention_norm(x), start_pos, freqs_cis, mask
         )
+        cv = h
+        h = x + h
         out = h + self.feed_forward.forward(self.ffn_norm(h))
-        return out
+        return (out, kv, cv)
 
 
 class Transformer(nn.Module):
@@ -448,13 +451,17 @@ class Transformer(nn.Module):
         )
 
         self.freqs_cis = precompute_freqs_cis(
-            # Note that self.params.max_seq_len is multiplied by 2 because the token limit for the Llama 2 generation of models is 4096. 
+            # Note that self.params.max_seq_len is multiplied by 2 because the token limit for the Llama 2 generation of models is 4096.
             # Adding this multiplier instead of using 4096 directly allows for dynamism of token lengths while training or fine-tuning.
             self.params.dim // self.params.n_heads, self.params.max_seq_len * 2
         )
 
     @torch.inference_mode()
-    def forward(self, tokens: torch.Tensor, start_pos: int) -> list[torch.Tensor]:
+    def forward(
+        self,
+        tokens: torch.Tensor,
+        start_pos: int
+    ) -> tuple[torch.Tensor, list[torch.Tensor], list[torch.Tensor]]:
         """
         Perform a forward pass through the Transformer model.
 
@@ -468,6 +475,7 @@ class Transformer(nn.Module):
         """
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
+        raw_embeds = h
         self.freqs_cis = self.freqs_cis.to(h.device)
         freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
 
@@ -478,8 +486,10 @@ class Transformer(nn.Module):
             )
             mask = torch.triu(mask, diagonal=start_pos + 1).type_as(h)
 
+        key_value_list = []
         context_vectors_list = []
         for _i, layer in enumerate(self.layers):
-            h = layer(h, start_pos, freqs_cis, mask)
-            context_vectors_list.append(h)
-        return context_vectors_list
+            (h, kv, cv) = layer(h, start_pos, freqs_cis, mask)
+            key_value_list.append(kv)
+            context_vectors_list.append(cv)
+        return raw_embeds, key_value_list, context_vectors_list

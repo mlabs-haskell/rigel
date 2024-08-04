@@ -131,7 +131,7 @@ class Llama:
         self,
         prompt_tokens: List[List[int]],
         max_gen_len: int = None
-    ) -> list[list[any]]:
+    ) -> tuple[list[any], list[list[any]], list[list[any]]]:
         """
         Generate text sequences based on provided prompts using the language generation model.
 
@@ -172,9 +172,12 @@ class Llama:
         # prev_pos = 0
         # eos_reached = torch.tensor([False] * bsz)
         # input_text_mask = tokens != pad_id
-        context_vectors_list = self.model.forward(tokens, 0)
+        tokens = tokens[:, :max_prompt_len]
+        raw_embeds, key_value_list, context_vectors_list = self.model.forward(tokens, 0)
+        raw_embeds = raw_embeds.tolist()
+        key_value_list = [x.tolist() for x in key_value_list]
         context_vectors_list = [x.tolist() for x in context_vectors_list]
-        return context_vectors_list
+        return raw_embeds, key_value_list, context_vectors_list
         # if min_prompt_len == total_len:
         #     logits = self.model.forward(tokens, prev_pos)
         #     token_logprobs = -F.cross_entropy(
@@ -184,8 +187,9 @@ class Llama:
         #         ignore_index=pad_id,
         #     )
 
+        # ['what', 'is', 'blue', '?', 'it', 0, 0, 0]
         # for cur_pos in range(min_prompt_len, total_len):
-        #     context_vectors = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
+        #     logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
         #     if temperature > 0:
         #         probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
         #         next_token = sample_top_p(probs, top_p)
@@ -232,15 +236,17 @@ class Llama:
         # return (out_tokens, out_logprobs if logprobs else None)
 
     def tokenize(
-        self, 
-        max_seq_len, 
-        prompts: List[Tuple[str, str]]
+        self,
+        max_seq_len,
+        prompts: List[Tuple[str, str]],
+        bos: bool = True,
+        eos: bool = False
     ) -> List[Tuple[str, List[int]]]:
         output = []
         for section, text in prompts:
-            tokens = self.tokenizer.encode(text, bos=True, eos=False)
+            tokens = self.tokenizer.encode(text, bos=bos, eos=eos)
             output.append((section, tokens[:max_seq_len]))
-                
+
         return output
 
     def text_completion(
