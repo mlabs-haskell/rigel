@@ -1,7 +1,9 @@
 import torch
 from torch import nn
 from torch.optim import Adam
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader
+
+from context_vector_loader import ContextVectorDataLoader
 
 class HierarchicalCompression(nn.Module):
     def __init__(self, cv_size: int):
@@ -70,9 +72,5 @@ def train_compression_network(
     return network
 
 with torch.device("cuda"):
-    X = torch.randn(500, 192 * 4096, dtype=torch.float32)
-    y = torch.randint(0, 2, (500, 100), dtype=torch.float32)
-    y = 2 * y - 1
-    dataset = TensorDataset(X, y)
-    loader = DataLoader(dataset, 100)
+    loader = ContextVectorDataLoader(100, "../tfidf.json")
     train_compression_network(loader, 100)

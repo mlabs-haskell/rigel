@@ -54,7 +54,7 @@ def get_all_tfidf(
     texts_map = {}
     last_title = None
     last_article = None
-    for doc in get_documents_from_mongo(database):
+    for collection_name, doc in get_documents_from_mongo(database):
         # Get article title and section header
         document_id = doc['_id']
         title = doc["title"]
@@ -107,15 +107,21 @@ def get_all_tfidf(
                     continue
 
                 text = section['text']
-            texts_map[str(document_id)] = text
+            texts_map[str(document_id)] = (text, collection_name)
             print(f"Processed {title}\\{header_name}")
 
         else:
             print(f"Article {title} could not be found in the index file")
 
     # Do TFIDF vectorization
-    tfidfs = get_tfidf(texts_map.values())
-    document_tfidfs = {d: t for d, t in zip(texts_map.keys(), tfidfs)}
+    texts = map(lambda t: t[0], texts_map.values())
+    collections = map(lambda t: t[1], texts_map.values())
+    tfidfs = get_tfidf(texts)
+    document_tfidfs = {}
+    for d, c, t in zip(texts_map.keys(), collections, tfidfs):
+        if c not in document_tfidfs:
+            document_tfidfs[c] = {}
+        document_tfidfs[c][d] = t
 
     # Write to designated file
     with open(out_file, 'w') as file:

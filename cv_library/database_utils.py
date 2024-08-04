@@ -25,12 +25,12 @@ def get_contents_indices(contents_index_file: str) -> dict[str, int]:
 
 def get_documents_from_mongo(
     database: Database
-) -> Iterator:
+) -> Iterator[tuple]:
     # Get all document ids
     for collection_name in database.list_collection_names():
         collection = database[collection_name]
         for document in collection.find():
-            yield document
+            yield collection_name, document
 
 # Reads JSON object from data file starting at given index
 def read_data(contents_data_file: str, index: int) -> dict:
