@@ -72,5 +72,5 @@ def train_compression_network(
     return network
 
 with torch.device("cuda"):
-    loader = ContextVectorDataLoader(100, "../tfidf.json")
+    loader = ContextVectorDataLoader(250, "../tfidf.json")
     train_compression_network(loader, 100)

@@ -2,6 +2,7 @@ import json
 import random
 from typing import Iterator
 
+from bson.objectid import ObjectId
 import torch
 
 from database_utils import (
@@ -33,7 +34,7 @@ class ContextVectorDataLoader():
         # Batch document ids
         if random_seed is not None:
             random.seed(random_seed)
-        document_ids = random.shuffle(document_ids)
+        random.shuffle(document_ids)
         batches = [
             document_ids[i : i + batch_size]
             for i in range(0, len(document_ids), batch_size)
@@ -42,15 +43,26 @@ class ContextVectorDataLoader():
         self.database = database
         self.batches = batches
 
-    def __next__(self) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
+    def __iter__(self) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
         for batch in self.batches:
             Xs = []
             document_ids = []
             for collection_name, document_id in batch:
-                # Get the context vector
-                doc = self.database[collection_name].find_one({"_id": document_id})
+                # Find the document
+                collection = self.database[collection_name]
+                doc = collection.find_one({"_id": ObjectId(document_id)})
+                if doc is None:
+                    continue
+
+                # Get its context vector
                 context_vector = doc["context_vector"]
                 context_vector = torch.tensor(context_vector)
+                if context_vector.shape[0] != 128 or context_vector.shape[1] != 4096:
+                    print(f"ALERT: {collection_name}, {document_id}")
+                    print(f"\tShape: {context_vector.shape}")
+                    print("\tDeleting...")
+                    collection.delete_one({'_id': ObjectId(document_id)})
+                    continue
                 context_vector = context_vector.flatten()
                 Xs.append(context_vector)
 
