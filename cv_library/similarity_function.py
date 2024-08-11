@@ -21,10 +21,17 @@ def _sequence_similarity(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     return max_sims.mean(dim=-1)
 
 class SequenceLoss(nn.Module):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, y_scale: float = 1.0):
+        super().__init__()
+        self.y_scale = y_scale
 
     def forward(self, x1: torch.Tensor, x2: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         raw_sim_scores = _sequence_similarity(x1, x2)
         losses = (raw_sim_scores - y) ** 2
+
+        # Scale based on the distribution of y
+        scales = torch.ones_like(y)
+        scales[y != 0.0] = self.y_scale
+        losses = losses * scales
+
         return losses.sum()

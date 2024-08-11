@@ -1,14 +1,16 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.optim import Adam
+from torch.optim import Adam, Optimizer
 from torch.utils.data import DataLoader
-import tqdm
 
 from context_vector_loader import ContextVectorDataLoader
 from similarity_function import SequenceLoss
 
+import fire
 import math
+from pathlib import Path
+import tqdm
 
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 
@@ -81,14 +83,14 @@ class HierarchicalCompression(nn.Module):
         self.freqs_cis = []
         curr_features = cv_size
         while curr_features > Attention.NUM_HEADS:
-            print(curr_features)
-
             freqs_cis = precompute_freqs_cis(curr_features // Attention.NUM_HEADS, 128)
             self.freqs_cis.append(freqs_cis)
 
             out_features = curr_features // 8
             stack.append(Attention(curr_features, out_features))
             curr_features = out_features
+
+            print(f"Layer #{len(stack)} output size: {curr_features}")
 
         self.stack = nn.Sequential(*stack)
 
@@ -101,49 +103,140 @@ class HierarchicalCompression(nn.Module):
 
         return outputs
 
-LOSS_BATCH_SIZE = 100
+def run_batch(
+    X: torch.Tensor,
+    y: torch.Tensor,
+    network: HierarchicalCompression,
+    loss_batch_size: int,
+    loss_fn: nn.Module,
+    factor: float
+) -> torch.Tensor:
+    # Push the data through the network
+    compressed_vectors = network.forward(X)
+
+    # Calculate loss at each level of compression
+    batch_loss = torch.tensor(0.0)
+    for compressed_vector in compressed_vectors:
+        # Get the vectors for loss calculation
+        for cv1_idx in range(len(compressed_vector)):
+            X1 = compressed_vector[cv1_idx]
+            for cv2_idx in range(cv1_idx + 1, len(compressed_vector), loss_batch_size):
+                # Get the Xs and y for the loss calculation
+                loss_X2 = compressed_vector[cv2_idx : cv2_idx + loss_batch_size]
+                loss_X1 = X1.unsqueeze(0).expand((len(loss_X2), -1, -1))
+                loss_y = y[cv1_idx, cv2_idx : cv2_idx + loss_batch_size]
+
+                # Calculate the loss
+                batch_loss += factor * loss_fn(loss_X1, loss_X2, loss_y)
+
+    return batch_loss
 
 def train_compression_network(
-    context_vectors: DataLoader,
-    epochs: int
+    train_dataset: DataLoader,
+    val_dataset: DataLoader,
+    epochs: int,
+    checkpoint_file: str,
+    loss_batch_size: int = 100
 ) -> HierarchicalCompression:
+    # Set up the network
     network = HierarchicalCompression(4096)
     optimizer = Adam(network.parameters())
-    loss_fn = SequenceLoss()
-    for i in tqdm.tqdm(range(epochs)):
-        epoch_loss = 0.0
-        pbar = tqdm.tqdm(context_vectors)
-        for X, y in pbar:
+    loss_fn = SequenceLoss(y_scale=2)
+    start_epoch = 0
+
+    # Check if checkpoint already exists
+    checkpoint_path = Path(checkpoint_file)
+    if checkpoint_path.is_file():
+        checkpoint = torch.load(checkpoint_path)
+        network.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        start_epoch = checkpoint['epoch']
+
+    # Iterate through the epochs
+    epoch_pbar = tqdm.tqdm(range(start_epoch, epochs), leave=False)
+    for i in epoch_pbar:
+        # Train the model
+        batch_pbar = tqdm.tqdm(train_dataset, leave=False, desc="Training")
+        network.train()
+        for X, y in batch_pbar:
             # Push the data through the network
             optimizer.zero_grad()
-            compressed_vectors = network.forward(X)
+            factor = 2.0 ** len(network.stack)
+            batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, factor)
 
-            # Calculate loss at each level of compression
-            # TODO: Maybe add additional weight for each tier?
-            batch_loss = torch.tensor(0.0)
-            for compressed_vector in compressed_vectors:
-                # Get the vectors for loss calculation
-                for cv1_idx in range(len(compressed_vector)):
-                    X1 = compressed_vector[cv1_idx]
-                    for cv2_idx in range(cv1_idx + 1, len(compressed_vector), LOSS_BATCH_SIZE):
-                        loss_X2 = compressed_vector[cv2_idx : cv2_idx + LOSS_BATCH_SIZE]
-                        loss_X1 = X1.unsqueeze(0).expand((len(loss_X2), -1, -1))
-
-                        # Make the loss -1 (to min. cos sim) or 1 (to max.)
-                        loss_y = y[cv1_idx, cv2_idx : cv2_idx + LOSS_BATCH_SIZE]
-                        #loss_y = 2 * torch.round(y[cv1_idx, cv2_idx]) - 1
-
-                        batch_loss += loss_fn(loss_X1, loss_X2, loss_y)
-
-            epoch_loss += batch_loss.item()
+            # Do a step of gradient descent
             batch_loss.backward()
             optimizer.step()
+            factor /= 2.0
+
+            # Display the loss for this batch
             disp_loss = batch_loss.item() / (len(X) ** 2)
-            pbar.set_description(f"Batch loss: {disp_loss:.3f}")
+            batch_pbar.set_postfix({'batch loss': disp_loss})
+
+        # Save it
+        torch.save({
+            'epoch': i + 1,
+            'model_state_dict': network.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict()
+        }, checkpoint_file)
+
+        # Validate the model
+        with torch.no_grad():
+            batch_pbar = tqdm.tqdm(val_dataset, leave=False, desc="Validating")
+            network.eval()
+            total_loss = 0.0
+            total_comparisons = 0
+            for X, y in batch_pbar:
+                # Evaluate the batch
+                factor = 2.0 ** len(network.stack)
+                batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, factor)
+                factor /= 2.0
+
+                # Increment totals
+                total_loss += batch_loss
+                total_comparisons += len(X) ** 2
+
+                # Display the loss for this batch
+                disp_loss = batch_loss.item() / (len(X) ** 2)
+                batch_pbar.set_postfix({'batch loss': disp_loss})
+
+        # Display the loss for this epoch
+        disp_loss = total_loss.item() / total_comparisons
+        epoch_pbar.set_postfix({'validation loss': disp_loss})
 
     return network
 
-with torch.device("cuda"):
-    torch.set_default_dtype(torch.float32)
-    loader = ContextVectorDataLoader(150, "../tfidf.json", device=DEVICE)
-    train_compression_network(loader, 100)
+def train(
+    batch_size: int = 150,
+    tfidf_file: str = "../tfidf.json",
+    epochs: int = 100,
+    checkpoint_file: str = "model.pt"
+):
+    with torch.device(DEVICE):
+        torch.set_default_dtype(torch.float32)
+        train_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'train')
+        val_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'val')
+        train_compression_network(train_loader, val_loader, epochs, checkpoint_file)
+
+def count_ys():
+    loader = ContextVectorDataLoader(150, "../tfidf.json", 'train')
+    zeros = 0
+    others = 0
+
+    pbar = tqdm.tqdm(loader)
+    for _, y in pbar:
+        pbar.set_description(f"{zeros} zeros and {others} others")
+        m = y != 0.0
+        num_other = torch.count_nonzero(m)
+        num_zeros = y.nelement() - num_other
+        others += num_other
+        zeros += num_zeros
+
+    print(f"Num zeros: {zeros}")
+    print(f"Num other: {others}")
+
+if __name__ == "__main__":
+    fire.Fire({
+        'train': train,
+        'count_ys': count_ys
+    })

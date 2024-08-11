@@ -1,7 +1,6 @@
 import json
 import random
-import threading
-from typing import Iterator
+from typing import Iterator, Literal
 
 from bson.objectid import ObjectId
 import torch
@@ -15,10 +14,10 @@ class ContextVectorDataLoader():
         self,
         batch_size: int,
         tfidf_file: str,
+        split: Literal['train', 'val', 'test'],
         connection_string: str = CONNECTION_STRING,
         database_name: str = DATABASE_NAME,
-        random_seed: int | None = None,
-        device: str | None = None
+        random_seed: int | None = None
     ):
         # Get database connection
         database = connect_to_database(connection_string, database_name)
@@ -33,18 +32,29 @@ class ContextVectorDataLoader():
                     self.tfidfs[document_id] = torch.tensor(tfidf)
                     document_ids.append((collection_name, document_id))
 
+        # Determine batch selection function based on split type
+        match split:
+            case 'train':
+                selection_function = lambda i: 0 <= i % 5 and i % 5 <= 2
+            case 'val':
+                selection_function = lambda i: i % 5 == 3
+            case 'test':
+                selection_function = lambda i: i % 5 == 4
+            case _:
+                raise ValueError(f"Unknown split type {split}")
+
         # Batch document ids
         if random_seed is not None:
             random.seed(random_seed)
         random.shuffle(document_ids)
         batches = [
             document_ids[i : i + batch_size]
-            for i in range(0, len(document_ids), batch_size)
+            for batch_number, i in enumerate(range(0, len(document_ids), batch_size))
+            if selection_function(batch_number)
         ]
 
         self.database = database
         self.batches = batches
-        self.device = device
 
     def __len__(self):
         return len(self.batches)
@@ -93,10 +103,5 @@ class ContextVectorDataLoader():
                 tfidf_j = self.tfidfs[document_id_j]
                 score = cos_sim(tfidf_i, tfidf_j)
                 y[i, j] = y[j, i] = score
-
-        # Make sure tensors are on right device
-        if self.device is not None:
-            X = X.to(self.device)
-            y = y.to(self.device)
 
         return X, y
