@@ -2,3 +2,4 @@ parsed_articles/
 .vscode/
 *.py[cod]
 __pycache__/
+*.pt

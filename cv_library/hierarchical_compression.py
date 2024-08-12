@@ -142,17 +142,18 @@ def train_compression_network(
     network = HierarchicalCompression(4096)
     optimizer = Adam(network.parameters())
     loss_fn = SequenceLoss(y_scale=2)
-    start_epoch = 0
 
     # Check if checkpoint already exists
+    epoch_losses = []
     checkpoint_path = Path(checkpoint_file)
     if checkpoint_path.is_file():
         checkpoint = torch.load(checkpoint_path)
         network.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        start_epoch = checkpoint['epoch']
+        epoch_losses = checkpoint['losses']
 
     # Iterate through the epochs
+    start_epoch = len(epoch_losses)
     epoch_pbar = tqdm.tqdm(range(start_epoch, epochs), leave=False)
     for i in epoch_pbar:
         # Train the model
@@ -172,13 +173,6 @@ def train_compression_network(
             # Display the loss for this batch
             disp_loss = batch_loss.item() / (len(X) ** 2)
             batch_pbar.set_postfix({'batch loss': disp_loss})
-
-        # Save it
-        torch.save({
-            'epoch': i + 1,
-            'model_state_dict': network.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict()
-        }, checkpoint_file)
 
         # Validate the model
         with torch.no_grad():
@@ -202,7 +196,15 @@ def train_compression_network(
 
         # Display the loss for this epoch
         disp_loss = total_loss.item() / total_comparisons
+        epoch_losses.append(disp_loss)
         epoch_pbar.set_postfix({'validation loss': disp_loss})
+
+        # Save it
+        torch.save({
+            'model_state_dict': network.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'losses': epoch_losses
+        }, checkpoint_file)
 
     return network
 
@@ -212,13 +214,37 @@ def train(
     epochs: int = 100,
     checkpoint_file: str = "model.pt"
 ):
+    """Function to train a hierarchical compression network. Saves model after
+    each epoch in checkpoint_file. If checkpoint_file already exists, training
+    will resume from last saved epoch"""
     with torch.device(DEVICE):
         torch.set_default_dtype(torch.float32)
         train_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'train')
         val_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'val')
         train_compression_network(train_loader, val_loader, epochs, checkpoint_file)
 
+def min_loss(checkpoint_file: str = "model.pt"):
+    """Function to identify the epoch where the minimum validation loss occurred
+    """
+    checkpoint_path = Path(checkpoint_file)
+    if checkpoint_path.is_file():
+        # Load epoch losses
+        checkpoint = torch.load(checkpoint_path)
+        epoch_losses = checkpoint['losses']
+
+        if len(epoch_losses) > 0:
+            min_idx, min_loss = min(enumerate(epoch_losses), key=lambda t: t[1])
+            print(f"Min loss of {min_loss} found after {min_idx + 1} epochs")
+        else:
+            print("No epoch history found")
+
+    else:
+        print(f"Error: could not find file {checkpoint_file}")
+        exit(1)
+
 def count_ys():
+    """Function to count up how many targets are 0 vs how many are not
+    """
     loader = ContextVectorDataLoader(150, "../tfidf.json", 'train')
     zeros = 0
     others = 0
@@ -238,5 +264,6 @@ def count_ys():
 if __name__ == "__main__":
     fire.Fire({
         'train': train,
+        'min_loss': min_loss,
         'count_ys': count_ys
     })
