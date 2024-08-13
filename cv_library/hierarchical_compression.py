@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.optim import Adam, Optimizer
+from torch.optim import Adam
 from torch.utils.data import DataLoader
 
 from context_vector_loader import ContextVectorDataLoader
@@ -9,6 +9,7 @@ from similarity_function import SequenceLoss
 
 import fire
 import math
+import matplotlib.pyplot as plt
 from pathlib import Path
 import tqdm
 
@@ -235,6 +236,10 @@ def min_loss(checkpoint_file: str = "model.pt"):
         if len(epoch_losses) > 0:
             min_idx, min_loss = min(enumerate(epoch_losses), key=lambda t: t[1])
             print(f"Min loss of {min_loss} found after {min_idx + 1} epochs")
+
+            plt.plot(epoch_losses)
+            plt.show()
+
         else:
             print("No epoch history found")
 
