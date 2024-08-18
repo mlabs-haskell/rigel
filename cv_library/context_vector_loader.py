@@ -17,7 +17,7 @@ class ContextVectorDataLoader():
         split: Literal['train', 'val', 'test'],
         connection_string: str = CONNECTION_STRING,
         database_name: str = DATABASE_NAME,
-        random_seed: int | None = None
+        random_seed: int = 0
     ):
         # Get database connection
         database = connect_to_database(connection_string, database_name)
@@ -44,8 +44,7 @@ class ContextVectorDataLoader():
                 raise ValueError(f"Unknown split type {split}")
 
         # Batch document ids
-        if random_seed is not None:
-            random.seed(random_seed)
+        random.seed(random_seed)
         random.shuffle(document_ids)
         batches = [
             document_ids[i : i + batch_size]

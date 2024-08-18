@@ -254,6 +254,8 @@ def count_ys():
     zeros = 0
     others = 0
 
+    cos_sims = []
+
     pbar = tqdm.tqdm(loader)
     for _, y in pbar:
         pbar.set_description(f"{zeros} zeros and {others} others")
@@ -262,6 +264,11 @@ def count_ys():
         num_zeros = y.nelement() - num_other
         others += num_other
         zeros += num_zeros
+        cos_sims += y.flatten().tolist()
+
+    plt.hist(cos_sims, 20, (0.0, 1.0))
+    plt.title("Distribution of Cosine Similarities")
+    plt.show()
 
     print(f"Num zeros: {zeros}")
     print(f"Num other: {others}")

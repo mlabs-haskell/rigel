@@ -21,6 +21,7 @@ def get_contents_indices(contents_index_file: str) -> dict[str, int]:
             line = line.strip()
             [index, article_name] = line.split(': ', maxsplit=1)
             contents_indices[article_name] = int(index)
+
     return contents_indices
 
 def get_documents_from_mongo(
