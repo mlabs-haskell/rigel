@@ -4,16 +4,12 @@ import torch.nn.functional as F
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 
-from context_vector_loader import ContextVectorDataLoader
-from similarity_function import SequenceLoss
+from loss_functions import CosineSimilarityLoss, SequenceLoss
 
-import fire
 import math
-import matplotlib.pyplot as plt
 from pathlib import Path
 import tqdm
-
-DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
+from typing import Literal
 
 # NOTE: The Attention-related functions and classes are mostly copied from Llama
 # This is because I expect we'll need to customize them. If that turns out not
@@ -76,18 +72,19 @@ class Attention(nn.Module):
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
         return self.wo(output)
 
-class HierarchicalCompression(nn.Module):
-    def __init__(self, cv_size: int):
+class HierarchicalAttention(nn.Module):
+    def __init__(self, cv_size: torch.Size, reduction: int = 8):
         super().__init__()
 
         stack = []
         self.freqs_cis = []
-        curr_features = cv_size
-        while curr_features > Attention.NUM_HEADS:
-            freqs_cis = precompute_freqs_cis(curr_features // Attention.NUM_HEADS, 128)
+        curr_features = cv_size[-1]
+        seq_len = cv_size[-2]
+        while curr_features > Attention.NUM_HEADS and curr_features > reduction:
+            freqs_cis = precompute_freqs_cis(curr_features // Attention.NUM_HEADS, seq_len)
             self.freqs_cis.append(freqs_cis)
 
-            out_features = curr_features // 8
+            out_features = curr_features // reduction
             stack.append(Attention(curr_features, out_features))
             curr_features = out_features
 
@@ -104,10 +101,36 @@ class HierarchicalCompression(nn.Module):
 
         return outputs
 
+class HierarchicalLinear(nn.Module):
+    def __init__(self, cv_size: torch.Size, reduction: int = 512):
+        super().__init__()
+
+        stack = []
+        curr_features = cv_size[-1] * cv_size[-2]
+        while curr_features > reduction:
+            out_features = curr_features // reduction
+            stack.append(nn.Linear(curr_features, out_features))
+            curr_features = out_features
+
+            print(f"Layer #{len(stack)} output size: {curr_features}")
+
+        self.stack = nn.Sequential(*stack)
+
+    def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
+        x = x.flatten(-2)
+
+        outputs = []
+        for layer in self.stack:
+            x = layer.forward(x)
+            x = F.tanh(x)
+            outputs.append(x)
+
+        return outputs
+
 def run_batch(
     X: torch.Tensor,
     y: torch.Tensor,
-    network: HierarchicalCompression,
+    network: HierarchicalAttention | HierarchicalLinear,
     loss_batch_size: int,
     loss_fn: nn.Module,
     factor: float
@@ -137,12 +160,26 @@ def train_compression_network(
     val_dataset: DataLoader,
     epochs: int,
     checkpoint_file: str,
-    loss_batch_size: int = 100
-) -> HierarchicalCompression:
+    network_type: Literal["attention", "linear"],
+    loss_batch_size: int = 100,
+    reduction_factor: int | None = None
+) -> HierarchicalAttention:
     # Set up the network
-    network = HierarchicalCompression(4096)
+    kwargs = {'cv_size': [128, 4096]}
+    if reduction_factor is not None:
+        kwargs['reduction'] = reduction_factor
+    match network_type:
+        case "attention":
+            network = HierarchicalAttention(**kwargs)
+            loss_fn = SequenceLoss(y_scale=2)
+        case "linear":
+            network = HierarchicalLinear(**kwargs)
+            loss_fn = CosineSimilarityLoss(y_scale=2)
+        case _:
+            raise ValueError(
+                f"train_compression_network: {network_type} not a recognized network type"
+            )
     optimizer = Adam(network.parameters())
-    loss_fn = SequenceLoss(y_scale=2)
 
     # Check if checkpoint already exists
     epoch_losses = []
@@ -156,7 +193,7 @@ def train_compression_network(
     # Iterate through the epochs
     start_epoch = len(epoch_losses)
     epoch_pbar = tqdm.tqdm(range(start_epoch, epochs), leave=False)
-    for i in epoch_pbar:
+    for _ in epoch_pbar:
         # Train the model
         batch_pbar = tqdm.tqdm(train_dataset, leave=False, desc="Training")
         network.train()
@@ -208,74 +245,3 @@ def train_compression_network(
         }, checkpoint_file)
 
     return network
-
-def train(
-    batch_size: int = 150,
-    tfidf_file: str = "../tfidf.json",
-    epochs: int = 100,
-    checkpoint_file: str = "model.pt"
-):
-    """Function to train a hierarchical compression network. Saves model after
-    each epoch in checkpoint_file. If checkpoint_file already exists, training
-    will resume from last saved epoch"""
-    with torch.device(DEVICE):
-        torch.set_default_dtype(torch.float32)
-        train_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'train')
-        val_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'val')
-        train_compression_network(train_loader, val_loader, epochs, checkpoint_file)
-
-def min_loss(checkpoint_file: str = "model.pt"):
-    """Function to identify the epoch where the minimum validation loss occurred
-    """
-    checkpoint_path = Path(checkpoint_file)
-    if checkpoint_path.is_file():
-        # Load epoch losses
-        checkpoint = torch.load(checkpoint_path)
-        epoch_losses = checkpoint['losses']
-
-        if len(epoch_losses) > 0:
-            min_idx, min_loss = min(enumerate(epoch_losses), key=lambda t: t[1])
-            print(f"Min loss of {min_loss} found after {min_idx + 1} epochs")
-
-            plt.plot(epoch_losses)
-            plt.show()
-
-        else:
-            print("No epoch history found")
-
-    else:
-        print(f"Error: could not find file {checkpoint_file}")
-        exit(1)
-
-def count_ys():
-    """Function to count up how many targets are 0 vs how many are not
-    """
-    loader = ContextVectorDataLoader(150, "../tfidf.json", 'train')
-    zeros = 0
-    others = 0
-
-    cos_sims = []
-
-    pbar = tqdm.tqdm(loader)
-    for _, y in pbar:
-        pbar.set_description(f"{zeros} zeros and {others} others")
-        m = y != 0.0
-        num_other = torch.count_nonzero(m)
-        num_zeros = y.nelement() - num_other
-        others += num_other
-        zeros += num_zeros
-        cos_sims += y.flatten().tolist()
-
-    plt.hist(cos_sims, 20, (0.0, 1.0))
-    plt.title("Distribution of Cosine Similarities")
-    plt.show()
-
-    print(f"Num zeros: {zeros}")
-    print(f"Num other: {others}")
-
-if __name__ == "__main__":
-    fire.Fire({
-        'train': train,
-        'min_loss': min_loss,
-        'count_ys': count_ys
-    })

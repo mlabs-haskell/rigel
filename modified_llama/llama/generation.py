@@ -232,15 +232,15 @@ class Llama:
         # return (out_tokens, out_logprobs if logprobs else None)
 
     def tokenize(
-        self, 
-        max_seq_len, 
+        self,
+        max_seq_len,
         prompts: List[Tuple[str, str]]
     ) -> List[Tuple[str, List[int]]]:
         output = []
         for section, text in prompts:
             tokens = self.tokenizer.encode(text, bos=True, eos=False)
             output.append((section, tokens[:max_seq_len]))
-                
+
         return output
 
     def text_completion(
