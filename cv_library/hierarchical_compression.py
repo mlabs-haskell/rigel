@@ -102,11 +102,13 @@ class HierarchicalAttention(nn.Module):
         return outputs
 
 class HierarchicalLinear(nn.Module):
-    def __init__(self, cv_size: torch.Size, reduction: int = 512):
+    def __init__(self, cv_size: torch.Size, first_layer_out: int = 512, reduction: int = 16):
         super().__init__()
 
-        stack = []
         curr_features = cv_size[-1] * cv_size[-2]
+        stack = [nn.Linear(curr_features, first_layer_out)]
+        curr_features = first_layer_out
+        print(f"Layer #{len(stack)} output size: {curr_features}")
         while curr_features > reduction:
             out_features = curr_features // reduction
             stack.append(nn.Linear(curr_features, out_features))
