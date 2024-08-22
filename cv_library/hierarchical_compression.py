@@ -145,11 +145,10 @@ def run_batch(
     for compressed_vector in compressed_vectors:
         # Get the vectors for loss calculation
         for cv1_idx in range(len(compressed_vector)):
-            X1 = compressed_vector[cv1_idx]
+            loss_X1 = compressed_vector[cv1_idx]
             for cv2_idx in range(cv1_idx + 1, len(compressed_vector), loss_batch_size):
                 # Get the Xs and y for the loss calculation
                 loss_X2 = compressed_vector[cv2_idx : cv2_idx + loss_batch_size]
-                loss_X1 = X1.unsqueeze(0).expand((len(loss_X2), -1, -1))
                 loss_y = y[cv1_idx, cv2_idx : cv2_idx + loss_batch_size]
 
                 # Calculate the loss

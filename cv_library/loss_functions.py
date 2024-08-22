@@ -26,6 +26,7 @@ class SequenceLoss(nn.Module):
         self.y_scale = y_scale
 
     def forward(self, x1: torch.Tensor, x2: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        x1 = x1.unsqueeze(0).expand((len(x2), -1, -1))
         raw_sim_scores = sequence_similarity(x1, x2)
         losses = (raw_sim_scores - y) ** 2
 
