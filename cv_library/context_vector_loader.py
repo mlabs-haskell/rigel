@@ -5,7 +5,7 @@ from typing import Iterator, Literal
 from bson.objectid import ObjectId
 import torch
 
-from database_utils import (
+from .database_utils import (
     CONNECTION_STRING, DATABASE_NAME, connect_to_database
 )
 

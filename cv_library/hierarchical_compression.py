@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 
-from loss_functions import CosineSimilarityLoss, SequenceLoss
+from .loss_functions import CosineSimilarityLoss, SequenceLoss
 
 import math
 from pathlib import Path

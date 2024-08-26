@@ -1,5 +1,5 @@
-from context_vector_loader import ContextVectorDataLoader
-from hierarchical_compression import train_compression_network
+from .context_vector_loader import ContextVectorDataLoader
+from .hierarchical_compression import train_compression_network
 
 import fire
 import matplotlib.pyplot as plt
@@ -15,12 +15,13 @@ def train(
     batch_size: int = 150,
     tfidf_file: str = "../tfidf.json",
     epochs: int = 100,
-    reduction_factor: int | None = None
+    reduction_factor: int | None = None,
+    device: str = DEVICE
 ):
     """Function to train a hierarchical compression network. Saves model after
     each epoch in checkpoint_file. If checkpoint_file already exists, training
     will resume from last saved epoch"""
-    with torch.device(DEVICE):
+    with torch.device(device):
         torch.set_default_dtype(torch.float32)
 
         train_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'train')
