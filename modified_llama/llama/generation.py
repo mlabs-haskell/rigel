@@ -131,7 +131,7 @@ class Llama:
         self,
         prompt_tokens: List[List[int]],
         max_gen_len: int = None
-    ) -> list[list[any]]:
+    ) -> torch.Tensor:
         """
         Generate text sequences based on provided prompts using the language generation model.
 
@@ -173,7 +173,6 @@ class Llama:
         # eos_reached = torch.tensor([False] * bsz)
         # input_text_mask = tokens != pad_id
         context_vectors = self.model.forward(tokens, 0)
-        context_vectors = context_vectors.tolist()
         return context_vectors
         # if min_prompt_len == total_len:
         #     logits = self.model.forward(tokens, prev_pos)
@@ -232,15 +231,15 @@ class Llama:
         # return (out_tokens, out_logprobs if logprobs else None)
 
     def tokenize(
-        self, 
-        max_seq_len, 
+        self,
+        max_seq_len,
         prompts: List[Tuple[str, str]]
     ) -> List[Tuple[str, List[int]]]:
         output = []
         for section, text in prompts:
             tokens = self.tokenizer.encode(text, bos=True, eos=False)
             output.append((section, tokens[:max_seq_len]))
-                
+
         return output
 
     def text_completion(

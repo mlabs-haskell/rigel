@@ -1,0 +1,8 @@
+fire
+matplotlib
+nltk
+numpy
+pymongo
+scikit-learn
+torch
+tqdm
