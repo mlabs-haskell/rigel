@@ -3,7 +3,7 @@
 
 import math
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Literal, Optional, Tuple
 
 import fairscale.nn.model_parallel.initialize as fs_init
 import torch
@@ -256,6 +256,7 @@ class Attention(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
+        injected_tensor: Optional[torch.Tensor]
     ):
         """
         Forward pass of the attention module.
@@ -271,7 +272,12 @@ class Attention(nn.Module):
 
         """
         bsz, seqlen, _ = x.shape
-        xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+
+        xq = self.wq(x)
+        if injected_tensor is not None:
+            xk, xv = self.wk(injected_tensor), self.wv(injected_tensor)
+        else:
+            xk, xv = self.wk(x), self.wv(x)
 
         xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
@@ -389,6 +395,7 @@ class TransformerBlock(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
+        injected_tensor: Optional[torch.Tensor]
     ):
         """
         Perform a forward pass through the TransformerBlock.
@@ -403,8 +410,10 @@ class TransformerBlock(nn.Module):
             torch.Tensor: Output tensor after applying attention and feedforward layers.
 
         """
+        if injected_tensor is not None:
+            injected_tensor = self.attention_norm(injected_tensor)
         h = x + self.attention.forward(
-            self.attention_norm(x), start_pos, freqs_cis, mask
+            self.attention_norm(x), start_pos, freqs_cis, mask, injected_tensor
         )
         out = h + self.feed_forward.forward(self.ffn_norm(h))
         return out
@@ -454,7 +463,13 @@ class Transformer(nn.Module):
         )
 
     @torch.inference_mode()
-    def forward(self, tokens: torch.Tensor, start_pos: int) -> torch.Tensor:
+    def forward(
+        self,
+        tokens: torch.Tensor,
+        start_pos: int,
+        injected_tensor: torch.Tensor | None = None,
+        injected_location: Literal['embeddings'] | None = None
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
         Perform a forward pass through the Transformer model.
 
@@ -467,7 +482,7 @@ class Transformer(nn.Module):
 
         """
         _bsz, seqlen = tokens.shape
-        h = self.tok_embeddings(tokens)
+        h = self.tok_embeddings.forward(tokens)
         self.freqs_cis = self.freqs_cis.to(h.device)
         freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
 
@@ -478,7 +493,14 @@ class Transformer(nn.Module):
             )
             mask = torch.triu(mask, diagonal=start_pos + 1).type_as(h)
 
+        cv_storage = {}
         for i, layer in enumerate(self.layers):
-            h = layer(h, start_pos, freqs_cis, mask)
-            if i == (self.n_layers // 2) - 1:
-               return h
+            curr_position_name = f"layer:{i}"
+            cv_storage[curr_position_name] = h
+            if curr_position_name == injected_location:
+                h = layer.forward(h, start_pos, freqs_cis, mask, injected_tensor)
+            else:
+                h = layer.forward(h, start_pos, freqs_cis, mask)
+        h = self.norm(h)
+        output = self.output(h).float()
+        return output, cv_storage
