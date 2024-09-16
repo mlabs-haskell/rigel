@@ -1,5 +1,5 @@
 import numpy as np
-from store import ContextVectorDB
+from . import ContextVectorDB
 
 # Generate tests for ContextVectorDB class using unittest module
 import unittest
