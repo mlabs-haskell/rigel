@@ -395,7 +395,7 @@ class TransformerBlock(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
-        injected_tensor: Optional[torch.Tensor]
+        injected_tensor: Optional[torch.Tensor] = None
     ):
         """
         Perform a forward pass through the TransformerBlock.

@@ -1,13 +1,11 @@
 import json
+from pathlib import Path
+import pickle
 import random
+import re
 from typing import Iterator, Literal
 
-from bson.objectid import ObjectId
 import torch
-
-from .database_utils import (
-    CONNECTION_STRING, DATABASE_NAME, connect_to_database
-)
 
 class ContextVectorDataLoader():
     def __init__(
@@ -15,22 +13,17 @@ class ContextVectorDataLoader():
         batch_size: int,
         tfidf_file: str,
         split: Literal['train', 'val', 'test'],
-        connection_string: str = CONNECTION_STRING,
-        database_name: str = DATABASE_NAME,
+        cv_dir_path: str,
         random_seed: int = 0
     ):
-        # Get database connection
-        database = connect_to_database(connection_string, database_name)
-
         # Get TFIDFs and document ids
         with open(tfidf_file, 'r') as file:
             tfidf_buffer = json.load(file)
             self.tfidfs = {}
             document_ids = []
-            for collection_name, document_dict in tfidf_buffer.items():
-                for document_id, tfidf in document_dict.items():
-                    self.tfidfs[document_id] = torch.tensor(tfidf)
-                    document_ids.append((collection_name, document_id))
+            for document_id, tfidf in tfidf_buffer.items():
+                self.tfidfs[document_id] = torch.tensor(tfidf)
+                document_ids.append(document_id)
 
         # Determine batch selection function based on split type
         match split:
@@ -52,8 +45,8 @@ class ContextVectorDataLoader():
             if selection_function(batch_number)
         ]
 
-        self.database = database
         self.batches = batches
+        self.cv_dir_path = Path(cv_dir_path)
 
     def __len__(self):
         return len(self.batches)
@@ -63,30 +56,35 @@ class ContextVectorDataLoader():
             X, y = self.load_batch(batch)
             yield X, y
 
-    def load_batch(self, batch: list[tuple[str, str]]) -> tuple[torch.Tensor, torch.Tensor]:
+    def load_batch(self, batch: list[str]) -> tuple[torch.Tensor, torch.Tensor]:
         Xs = []
         document_ids = []
-        for collection_name, document_id in batch:
-            # Find the document
-            collection = self.database[collection_name]
-            doc = collection.find_one({"_id": ObjectId(document_id)})
-            if doc is None:
-                continue
+        regex = re.compile(r"[^0-9a-zA-Z]")
+        for document_id in batch:
+            # Get file name and section heading
+            article_title, section_header = document_id.split("\\", 1)
+            filepath = self.cv_dir_path / (regex.sub("_", article_title) + ".pkl")
 
-            # Get its context vector
-            context_vector = doc["context_vector"]
-            context_vector = torch.tensor(context_vector)
-            if context_vector.shape[0] != 128 or context_vector.shape[1] != 4096:
-                print(f"ALERT: {collection_name}, {document_id}")
-                print(f"\tShape: {context_vector.shape}")
-                print("\tDeleting...")
-                collection.delete_one({'_id': ObjectId(document_id)})
+            # Find the document
+            context_vector = None
+            if filepath.is_file():
+                with open(filepath, 'rb') as file:
+                    doc = pickle.load(file)
+                doc = doc["section_cv_map"]
+
+                if section_header in doc:
+                    context_vector = doc[section_header]
+
+            if context_vector is None:
+                print(f"Warning: {document_id} not found")
+                continue
+            if context_vector.shape[-2] != 256:
                 continue
             Xs.append(context_vector)
 
             # Record the document id
             document_ids.append(document_id)
-        X = torch.stack(Xs)
+        X = torch.stack(Xs).to(torch.float32)
 
         # Create y matrix containing similarity score between all data points
         cos_sim = torch.nn.CosineSimilarity(dim=0)

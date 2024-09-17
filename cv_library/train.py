@@ -1,5 +1,5 @@
-from .context_vector_loader import ContextVectorDataLoader
-from .hierarchical_compression import train_compression_network
+from context_vector_loader import ContextVectorDataLoader
+from hierarchical_compression import train_compression_network
 
 import fire
 import matplotlib.pyplot as plt
@@ -12,6 +12,7 @@ DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 def train(
     checkpoint_file: str,
     network_type: str,
+    cv_dir: str,
     batch_size: int = 150,
     tfidf_file: str = "../tfidf.json",
     epochs: int = 100,
@@ -24,8 +25,8 @@ def train(
     with torch.device(device):
         torch.set_default_dtype(torch.float32)
 
-        train_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'train')
-        val_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'val')
+        train_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'train', cv_dir)
+        val_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'val', cv_dir)
         train_compression_network(
             train_loader,
             val_loader,
@@ -61,7 +62,7 @@ def min_loss(checkpoint_file: str = "model.pt"):
 def count_ys():
     """Function to count up how many targets are 0 vs how many are not
     """
-    loader = ContextVectorDataLoader(150, "../tfidf.json", 'train')
+    loader = ContextVectorDataLoader(150, "../tfidf.json", 'train', "../db/")
     zeros = 0
     others = 0
 

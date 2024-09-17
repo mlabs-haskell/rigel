@@ -28,25 +28,33 @@ def generate_texts(article) -> Iterator[tuple[str, str]]:
 
 # A generating function that produces articles that haven't been processed yet
 def document_iterator(
-    article_path: Path,
+    cv_dir_root: Path,
     article_list: list[str],
     content_data_file: str,
     offsets: dict[str, tuple[int, int]]
 ) -> Iterator[dict]:
+    regex = re.compile(r"[^0-9a-zA-Z]")
     for article_title in article_list:
         # Only yield the article if it's not been processed yet
+        article_path = cv_dir_root / (regex.sub("_", article_title) + ".pkl")
         if not article_path.is_file():
             with open(content_data_file, "r") as file:
                 # Get the article from the contents monofile
                 offset, length = offsets[article_title]
                 file.seek(offset)
                 article_json = file.read(length)
-                if "}{" in article_json:
-                    article_json, *_ = article_json.split("}{")
-                    article_json += "}"
+                if "\n}{" in article_json:
+                    article_json, *_ = article_json.split("\n}{")
+                    article_json += "\n}"
 
                 # Read as a JSON
-                article = json.loads(article_json)
+                try:
+                    article = json.loads(article_json)
+                except:
+                    print("=============DUMP===========")
+                    print(article_json)
+                    print("=============END============")
+                    exit(1)
                 yield article
         else:
             print(f"Skipping {article_title}; already processed")
@@ -99,6 +107,7 @@ def main(
 
     # Iterate through each unprocessed article, get its context vectors, and write to the db
     regex = re.compile(r"[^0-9a-zA-Z]")
+    cv_dir_root = Path(cv_dir_root)
     for article in document_iterator(cv_dir_root, article_list, content_data_file, offsets):
         start = time.time()
         article_title = article["section_name"]

@@ -5,3 +5,5 @@ __pycache__/
 *.pt
 .venv
 *.pth
+db/
+tfidf.json

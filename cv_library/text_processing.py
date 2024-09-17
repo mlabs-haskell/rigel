@@ -1,5 +1,6 @@
 import nltk
 nltk.download('punkt')
+nltk.download('punkt_tab')
 nltk.download('stopwords')
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
@@ -8,13 +9,13 @@ from nltk.tokenize import word_tokenize
 from collections.abc import Iterable
 import fire
 import json
+import os
+from pathlib import Path
+import pickle
 from sklearn.feature_extraction.text import TfidfVectorizer
 import string
 
-from database_utils import (
-    CONNECTION_STRING, DATABASE_NAME,
-    connect_to_database, get_contents_indices, get_documents_from_mongo, read_data
-)
+from utils import get_contents_indices, read_data
 
 def _tokenize(text: str) -> list[str]:
     # Remove punctuation and lower case the text
@@ -35,7 +36,7 @@ def get_tfidf(
 ) -> list[list[float]]:
     tokens = map(lambda s: " ".join(_tokenize(s)), strings)
 
-    tfidf = TfidfVectorizer(max_df=0.9, min_df=0.1, max_features=1000)
+    tfidf = TfidfVectorizer(max_df=0.95, min_df=0.01)
     vectors = tfidf.fit_transform(tokens)
     return vectors.toarray().tolist()
 
@@ -43,85 +44,88 @@ def get_all_tfidf(
     contents_index_file: str,
     contents_data_file: str,
     out_file: str,
-    connection_string: str = CONNECTION_STRING,
-    database_name: str = DATABASE_NAME
+    cv_dir: str
 ):
-    # Get document ids from Mongo and indices for contents data file
+    cv_dir_path = Path(cv_dir)
+
+    # Get indices for contents data file
     contents_indices = get_contents_indices(contents_index_file)
-    database = connect_to_database(connection_string, database_name)
 
     # Get all strings
     texts_map = {}
-    last_title = None
-    last_article = None
-    for collection_name, doc in get_documents_from_mongo(database):
-        # Get article title and section header
-        document_id = doc['_id']
-        title = doc["title"]
-        header_name = doc["header_name"]
+    delete_files = []
+    for filename in os.listdir(cv_dir_path):
+        # Open the file
+        filepath = cv_dir_path / filename
+        with open(filepath, 'rb') as file:
+            try:
+                doc = pickle.load(file)
+            except:
+                print(f"Skipping {filename}; file in incorrect format")
+                delete_files.append(filepath)
 
-        # Only process titles that are in both the db and the index file
-        if title in contents_indices:
-            # Read the data from the contents file only if it hasn't been read
-            if last_title != title:
-                index = contents_indices[title]
-                last_title = title
-                try:
-                    article = read_data(contents_data_file, index)
-                    last_article = article
-                except:
-                    print(f"Could not parse {title}\\{header_name}")
-                    last_article = None
-                    continue
+            # Get article title and section header
+            title = doc["title"]
+            if title not in contents_indices:
+                print(f"{title} not in contents file")
+                continue
+            index = contents_indices[title]
 
-            # Skip articles whose JSON can't be parsed
-            if last_article is None:
+            # Read the article
+            try:
+                article = read_data(contents_data_file, index)
+            except:
+                print(f"Could not parse {title}")
                 continue
 
-            # For the root, the text is the article's text field
-            if header_name == 'root':
-                text = last_article['text']
-
-            # Otherwise, look for the correct child
-            else:
-                headers = header_name.split('\\')
-                headers = headers[1:]
-                section = last_article
-
-                # Descend through the tree until we reach the proper section
-                for header in headers:
-                    found_section = False
-                    for child in section['children']:
-                        if child['section_name'] == header:
-                            section = child
-                            found_section = True
-                            break
-
-                    if not found_section:
-                        print(f"Could not find section {title}\\{header_name}")
-                        section = None
-                        break
-
-                # If the section could not be found, move on
-                if section is None:
+            for header_name, cv in doc["section_cv_map"].items():
+                if cv.shape[-2] != 256:
                     continue
 
-                text = section['text']
-            texts_map[str(document_id)] = (text, collection_name)
-            print(f"Processed {title}\\{header_name}")
+                # For the root, the text is the article's text field
+                if header_name == 'root':
+                    text = article['text']
 
-        else:
-            print(f"Article {title} could not be found in the index file")
+                # Otherwise, look for the correct child
+                else:
+                    headers = header_name.split('\\')
+                    headers = headers[1:]
+                    section = article
+
+                    # Descend through the tree until we reach the proper section
+                    for header in headers:
+                        found_section = False
+                        for child in section['children']:
+                            if child['section_name'] == header:
+                                section = child
+                                found_section = True
+                                break
+
+                        if not found_section:
+                            print(f"Could not find section {title}\\{header_name}")
+                            section = None
+                            break
+
+                    # If the section could not be found, move on
+                    if section is None:
+                        continue
+
+                    text = section['text']
+                texts_map[f"{title}\\{header_name}"] = text
+                print(f"Processed {title}\\{header_name}")
+
+    # Remove bad files
+    for delete_file in delete_files:
+        os.remove(delete_file)
 
     # Do TFIDF vectorization
-    texts = map(lambda t: t[0], texts_map.values())
-    collections = map(lambda t: t[1], texts_map.values())
+    texts = texts_map.values()
     tfidfs = get_tfidf(texts)
-    document_tfidfs = {}
-    for d, c, t in zip(texts_map.keys(), collections, tfidfs):
-        if c not in document_tfidfs:
-            document_tfidfs[c] = {}
-        document_tfidfs[c][d] = t
+    document_tfidfs = {
+        d: t
+        for d, t in zip(texts_map.keys(), tfidfs)
+        if any([v > 0.0 for v in t])
+    }
 
     # Write to designated file
     with open(out_file, 'w') as file:

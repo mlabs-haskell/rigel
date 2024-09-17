@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 
-from .loss_functions import CosineSimilarityLoss, SequenceLoss
+from loss_functions import CosineSimilarityLoss, SequenceLoss
 
 import math
 from pathlib import Path
@@ -166,7 +166,7 @@ def train_compression_network(
     reduction_factor: int | None = None
 ) -> HierarchicalAttention:
     # Set up the network
-    kwargs = {'cv_size': [128, 4096]}
+    kwargs = {'cv_size': [256, 4096]}
     if reduction_factor is not None:
         kwargs['reduction'] = reduction_factor
     match network_type:
@@ -201,13 +201,13 @@ def train_compression_network(
         for X, y in batch_pbar:
             # Push the data through the network
             optimizer.zero_grad()
-            factor = 2.0 ** len(network.stack)
+            factor = 1.0 # 2.0 ** len(network.stack)
             batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, factor)
 
             # Do a step of gradient descent
             batch_loss.backward()
             optimizer.step()
-            factor /= 2.0
+            # factor /= 2.0
 
             # Display the loss for this batch
             disp_loss = batch_loss.item() / (len(X) ** 2)
@@ -221,9 +221,9 @@ def train_compression_network(
             total_comparisons = 0
             for X, y in batch_pbar:
                 # Evaluate the batch
-                factor = 2.0 ** len(network.stack)
+                factor = 1.0 # 2.0 ** len(network.stack)
                 batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, factor)
-                factor /= 2.0
+                # factor /= 2.0
 
                 # Increment totals
                 total_loss += batch_loss
