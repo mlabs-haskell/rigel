@@ -56,34 +56,45 @@ class Attention(nn.Module):
 
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
 
+        # Reshape q, k, and v to reflect the split into different heads
         head_dim = in_features // self.NUM_HEADS
         xq = xq.view(bsz, seqlen, self.NUM_HEADS, head_dim)
         xk = xk.view(bsz, seqlen, self.NUM_HEADS, head_dim)
         xv = xv.view(bsz, seqlen, self.NUM_HEADS, head_dim)
 
+        # Calculate the cis if needed
+        if x.shape[-2] != freqs_cis.shape[-2]:
+            freqs_cis = precompute_freqs_cis(in_features // self.NUM_HEADS, x.shape[-2])
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis)
 
+        # Do the dopt product
         xq = xq.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)
         xk = xk.transpose(1, 2)
         xv = xv.transpose(1, 2)
         scores = torch.matmul(xq, xk.transpose(2, 3)) / math.sqrt(head_dim)
+
+        # Use the calculated scores to create a mask to select an element from v
         scores = F.softmax(scores.float(), dim=-1).type_as(xq)
         output = torch.matmul(scores, xv)  # (bs, n_local_heads, seqlen, head_dim)
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
+
         return self.wo(output)
 
 class HierarchicalAttention(nn.Module):
-    def __init__(self, cv_size: torch.Size, reduction: int = 8):
+    def __init__(self, standard_cv_size: torch.Size, reduction: int = 8):
         super().__init__()
 
+        # Determine how much each layer will shrink the output size
         stack = []
         self.freqs_cis = []
-        curr_features = cv_size[-1]
-        seq_len = cv_size[-2]
+        curr_features = standard_cv_size[-1]
+        seq_len = standard_cv_size[-2]
         while curr_features > Attention.NUM_HEADS and curr_features > reduction:
+            # Precompute standard cis
             freqs_cis = precompute_freqs_cis(curr_features // Attention.NUM_HEADS, seq_len)
             self.freqs_cis.append(freqs_cis)
 
+            # Create the new attention layer
             out_features = curr_features // reduction
             stack.append(Attention(curr_features, out_features))
             curr_features = out_features
@@ -102,13 +113,21 @@ class HierarchicalAttention(nn.Module):
         return outputs
 
 class HierarchicalLinear(nn.Module):
-    def __init__(self, cv_size: torch.Size, first_layer_out: int = 512, reduction: int = 16):
+    def __init__(
+        self,
+        standard_cv_size: torch.Size,
+        first_layer_out: int = 512,
+        reduction: int = 16
+    ):
         super().__init__()
 
-        curr_features = cv_size[-1] * cv_size[-2]
+        # Determine size of first layer
+        curr_features = standard_cv_size[-1] * standard_cv_size[-2]
         stack = [nn.Linear(curr_features, first_layer_out)]
         curr_features = first_layer_out
         print(f"Layer #{len(stack)} output size: {curr_features}")
+
+        # Shrink each subsequent layer
         while curr_features > reduction:
             out_features = curr_features // reduction
             stack.append(nn.Linear(curr_features, out_features))
@@ -165,8 +184,17 @@ def train_compression_network(
     loss_batch_size: int = 100,
     reduction_factor: int | None = None
 ) -> HierarchicalAttention:
+    # Check if checkpoint already exists
+    epoch_losses = []
+    checkpoint_path = Path(checkpoint_file)
+    checkpoint = None
+    if checkpoint_path.is_file():
+        checkpoint = torch.load(checkpoint_path)
+        epoch_losses = checkpoint['losses']
+        reduction_factor = checkpoint['reduction_factor']
+
     # Set up the network
-    kwargs = {'cv_size': [256, 4096]}
+    kwargs = {'standard_cv_size': [1024, 4096]}
     if reduction_factor is not None:
         kwargs['reduction'] = reduction_factor
     match network_type:
@@ -182,14 +210,11 @@ def train_compression_network(
             )
     optimizer = Adam(network.parameters())
 
-    # Check if checkpoint already exists
-    epoch_losses = []
-    checkpoint_path = Path(checkpoint_file)
-    if checkpoint_path.is_file():
-        checkpoint = torch.load(checkpoint_path)
+    # If checkpoint was loaded, use it to set network params
+    if checkpoint is not None:
         network.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        epoch_losses = checkpoint['losses']
+        del checkpoint
 
     # Iterate through the epochs
     start_epoch = len(epoch_losses)
@@ -242,7 +267,8 @@ def train_compression_network(
         torch.save({
             'model_state_dict': network.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
-            'losses': epoch_losses
+            'losses': epoch_losses,
+            'reduction_factor': reduction_factor
         }, checkpoint_file)
 
     return network

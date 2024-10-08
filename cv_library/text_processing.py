@@ -79,9 +79,6 @@ def get_all_tfidf(
                 continue
 
             for header_name, cv in doc["section_cv_map"].items():
-                if cv.shape[-2] != 256:
-                    continue
-
                 # For the root, the text is the article's text field
                 if header_name == 'root':
                     text = article['text']

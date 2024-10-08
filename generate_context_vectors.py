@@ -10,6 +10,7 @@ import fire
 from tqdm import tqdm
 
 from modified_llama.llama import Llama
+from modified_llama.llama.generation import B_INST, E_INST
 
 def generate_texts(article) -> Iterator[tuple[str, str]]:
     # Generate text per section
@@ -20,7 +21,9 @@ def generate_texts(article) -> Iterator[tuple[str, str]]:
             subsection_name = article["section_name"]
             section_name = f"{section_name}\{subsection_name}"
 
-        yield (section_name, article["text"])
+        article_text = article["text"]
+        article_text = f"{B_INST}Use the following information when answering:{article_text}{E_INST}"
+        yield (section_name, article_text)
 
         for child in article["children"]:
             yield from get_text_by_section(section_name, child)
@@ -66,7 +69,7 @@ def main(
     content_index_file: str,
     article_list_file: str,
     cv_dir_root: str,
-    max_seq_len: int = 256,
+    max_seq_len: int = 1024,
     max_gen_len: int = 0,
     max_batch_size: int = 1,
 ):
