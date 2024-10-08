@@ -22,7 +22,7 @@ class IndexedFlatFile:
         index_map = {}
         last_key = None
         for line in index_file:
-            offset, key = line.split(":", maxsplit=1)
+            offset, key = line.split(": ", maxsplit=1)
             key = key.rstrip("\n")
             offset = int(offset)
             if last_key is not None:
