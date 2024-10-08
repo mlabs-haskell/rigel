@@ -111,15 +111,15 @@ class ContextVectorDB:
 class IndexedContextVectorDB:
     def __init__(self, main_file: str, metadata_file: str, progress: bool = True):
         """Open the metadata file, read it into memory and return an IndexedContextVectorDB."""
-        with open(metadata_file, 'ab+') as metadata_f:
-            with open(main_file, 'ab+') as main_f:
-                db = ContextVectorDB(main_f, metadata_f)
-                metadata_iter = db.read_metadata()
-                if progress:
-                    metadata_iter = tqdm.tqdm(metadata_iter)
-            index_map = self.build_index(metadata_iter)
+        metadata_f = open(metadata_file, 'ab+')
+        main_f = open(main_file, 'ab+')
+        db = ContextVectorDB(main_f, metadata_f)
 
-        self.index_map = index_map
+        metadata_iter = db.read_metadata()
+        if progress:
+            metadata_iter = tqdm.tqdm(metadata_iter)
+
+        self.index_map = self.build_index(metadata_iter)
         self.db = db
 
     @classmethod
