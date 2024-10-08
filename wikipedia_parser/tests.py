@@ -17,7 +17,7 @@ with tempfile.TemporaryFile("rt+") as index_file:
         data_file.flush()
         data_file.seek(0)
 
-        indexed_file = IndexedFlatFile.open(index_file, data_file)
+        indexed_file = IndexedFlatFile(index_file, data_file)
 
         value = indexed_file.get("Apple")
         assert value == "0123456789", value
