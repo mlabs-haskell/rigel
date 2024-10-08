@@ -3,6 +3,7 @@ import json
 import time
 
 import fire
+import torch
 from tqdm import tqdm
 
 from cv_storage import IndexedContextVectorDB
@@ -107,7 +108,11 @@ def main(
 
         # Insert context vectors into DB
         for section_name, context_vector in context_vectors:
-            cv_db.insert(article_title, section_name, context_vector)
+            cv_db.insert(
+                article_title,
+                section_name,
+                context_vector.to(torch.float64).cpu().detach().numpy()
+            )
 
         elapsed = time.time() - start
         print(f"Finished processing {article_title} in {elapsed} seconds")

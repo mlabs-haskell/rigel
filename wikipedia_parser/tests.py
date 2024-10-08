@@ -6,9 +6,9 @@ with tempfile.TemporaryFile("rt+") as index_file:
     with tempfile.TemporaryFile("rt+") as data_file:
         index_file.writelines(
             [
-                "0:Apple\n",
-                "10:Boy\n",
-                "20:Cat\n",
+                "0: Apple\n",
+                "10: Boy\n",
+                "20: Cat\n",
             ]
         )
         index_file.flush()
