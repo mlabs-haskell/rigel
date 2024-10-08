@@ -1,55 +1,31 @@
 from collections.abc import Iterator
 import json
-import os
 import time
 
 import fire
 from tqdm import tqdm
-from pymongo import MongoClient
-from pymongo.collection import Collection
 
+from cv_storage import IndexedContextVectorDB
 from modified_llama.llama import Llama
-
-CONNECTION_STRING = "mongodb://127.0.0.1"
-DATABASE_NAME = "rigel"
-COLLECTION_NAME = "context_vectors"
-
-"""
-schema:
-{
-    "title": str,
-    "header_name": str
-    "context_vector": binData
-}
-"""
-
-# Load the MongoDB collection we are saving the context vectors to
-def get_collection():
-    client = MongoClient(CONNECTION_STRING)
-    return client[DATABASE_NAME][COLLECTION_NAME]
+import wikipedia_parser
 
 # A generating function that produces articles that haven't been processed yet
 def document_iterator(
-    collection: Collection,
+    cv_db: IndexedContextVectorDB,
     article_list: list[str],
-    content_data_file: str,
-    offsets: dict[str, tuple[int, int]]
+    article_database: wikipedia_parser.IndexedFlatFile,
 ) -> Iterator[dict]:
     for article_title in article_list:
         # Only yield the article if it's not in the database yet
-        if collection.find_one({"title": article_title}) is None:
-            with open(content_data_file, "r") as file:
-                # Get the article from the contents monofile
-                offset, length = offsets[article_title]
-                file.seek(offset)
-                article_json = file.read(length)
-                if "}{" in article_json:
-                    article_json, _ = article_json.split("}{")
-                    article_json += "}"
+        if cv_db.get(article_title) is None:
+            article_json = article_database.get(article_title)
+            if "}{" in article_json:
+                article_json, _ = article_json.split("}{")
+                article_json += "}"
 
-                # Read as a JSON
-                article = json.loads(article_json)
-                yield article
+            # Read as a JSON
+            article = json.loads(article_json)
+            yield article
 
 def generate_texts(article) -> Iterator[tuple[str, str]]:
     # Generate text per section
@@ -71,6 +47,8 @@ def main(
     tokenizer_path: str,
     content_data_file: str,
     content_index_file: str,
+    cv_index_file: str,
+    cv_data_file: str,
     article_list_file: str,
     max_seq_len: int = 128,
     max_gen_len: int = 64,
@@ -82,24 +60,8 @@ def main(
         for line in file:
             article_list.append(line.strip())
 
-    # Get offsets
-    curr_offset = None
-    curr_title = None
-    offsets: dict[str, tuple[int, int]] = {}
-    with open(content_index_file, "r") as file:
-        for line in file:
-            offset, title = line.strip().split(": ", 1)
-            offset = int(offset)
-            if curr_offset is not None:
-                length = offset - curr_offset
-                offsets[curr_title] = (curr_offset, length)
-            curr_offset = offset
-            curr_title = title
-
-    # Get final offset
-    content_data_file_stats = os.stat(content_data_file)
-    length = content_data_file_stats.st_size - curr_offset
-    offsets[curr_title] = (curr_offset, length)
+    cv_db = IndexedContextVectorDB.open(open(cv_index_file), open(cv_data_file))
+    articles_db = wikipedia_parser.IndexedFlatFile.open(open(content_index_file), open(content_data_file))
 
     # Create the generator - very resource intensive
     print("Building generator")
@@ -112,8 +74,7 @@ def main(
     print("Built generator")
 
     # Iterate through each unprocessed article, get its context vectors, and write to the db
-    collection = get_collection()
-    for article in document_iterator(collection, article_list, content_data_file, offsets):
+    for article in document_iterator(cv_db, article_list, articles_db):
         start = time.time()
         print("Processing", article["section_name"])
 
@@ -136,14 +97,10 @@ def main(
                 (section, _) = batched_tokens[j]
                 context_vectors.append((section, batch_context_vectors[j]))
 
-        # Construct the MongoDB document
         for section, context_vector in context_vectors:
-            document = {
-                "title": article["section_name"],
-                "context_vector": context_vector,
-                "header_name": section
-            }
-            collection.insert_one(document)
+            # TODO: section or article["section_name"]
+            # @nate please clarify
+            cv_db.insert(section, context_vector)
 
         elapsed = time.time() - start
         print(f"Finished processing {article['section_name']} in {elapsed} seconds")
