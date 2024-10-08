@@ -150,5 +150,6 @@ class IndexedContextVectorDB:
 
     def insert(self, article_title: str, section_name: str, value: np.ndarray):
         start, _ = self.db.append_context_vector(article_title, section_name, value)
+        self.index_map.setdefault(article_title, {})
         self.index_map[article_title][section_name] = start
 
