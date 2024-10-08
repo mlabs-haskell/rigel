@@ -65,7 +65,10 @@ def main(
 
     # Create the context vector database
     cv_db = IndexedContextVectorDB(cv_index_file, cv_data_file)
-    articles_db = IndexedFlatFile(open(content_index_file), open(content_data_file))
+    articles_db = IndexedFlatFile(
+        open(content_index_file, 'r'),
+        open(content_data_file, 'r')
+    )
 
     # Create the generator - very resource intensive
     print("Building generator")
