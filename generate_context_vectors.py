@@ -63,13 +63,6 @@ def main(
         for line in file:
             article_list.append(line.strip())
 
-    # Create the context vector database
-    cv_db = IndexedContextVectorDB(cv_index_file, cv_data_file)
-    articles_db = IndexedFlatFile(
-        open(content_index_file, 'r'),
-        open(content_data_file, 'r')
-    )
-
     # Create the generator - very resource intensive
     print("Building generator")
     generator = Llama.build(
@@ -79,6 +72,13 @@ def main(
         max_batch_size=max_batch_size,
     )
     print("Built generator")
+
+    # Create the context vector database
+    cv_db = IndexedContextVectorDB(cv_index_file, cv_data_file)
+    articles_db = IndexedFlatFile(
+        open(content_index_file, 'r'),
+        open(content_data_file, 'r')
+    )
 
     # Iterate through each unprocessed article, get its context vectors, and write to the db
     for article in document_iterator(cv_db, article_list, articles_db):
