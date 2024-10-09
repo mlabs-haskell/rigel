@@ -16,9 +16,9 @@ class TestContextVectorDB(unittest.TestCase):
 
             db = ContextVectorDB(main_file, metadata_file)
 
-            db.append_context_vector("title1", "section1", np.array([1.0, 2.0, 3.0]))
-            db.append_context_vector("title2", "section1", np.array([4.0, 5.0, 6.0]))
-            db.append_context_vector("title2", "section2", np.array([7.0, 8.0, 9.0]))
+            db.append_context_vector("title1", "section1", np.array([1.0, 2.0, 3.0], dtype = 'float16'))
+            db.append_context_vector("title2", "section1", np.array([4.0, 5.0, 6.0], dtype = 'float16'))
+            db.append_context_vector("title2", "section2", np.array([7.0, 8.0, 9.0], dtype = 'float16'))
 
             iter = db.read_context_vectors()
 
@@ -50,9 +50,9 @@ class TestContextVectorDB(unittest.TestCase):
 
             db = ContextVectorDB(main_file, metadata_file)
 
-            db.append_context_vector("title1", "section1", np.array([1.0, 2.0, 3.0]))
-            db.append_context_vector("title2", "section1", np.array([4.0, 5.0, 6.0]))
-            db.append_context_vector("title2", "section2", np.array([7.0, 8.0, 9.0]))
+            db.append_context_vector("title1", "section1", np.array([1.0, 2.0, 3.0], dtype = 'float16'))
+            db.append_context_vector("title2", "section1", np.array([4.0, 5.0, 6.0], dtype = 'float16'))
+            db.append_context_vector("title2", "section2", np.array([7.0, 8.0, 9.0], dtype = 'float16'))
 
             main_file.close()
             metadata_file.close()

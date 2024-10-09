@@ -111,7 +111,7 @@ def main(
             cv_db.insert(
                 article_title,
                 section_name,
-                context_vector.to(torch.float64).cpu().detach().numpy()
+                context_vector.cpu().detach().numpy()
             )
 
         elapsed = time.time() - start

@@ -20,13 +20,13 @@ class ContextVectorDB:
         """Adds a context vector to the database. Returns the start and end
         positions in the binary file
         """
-        assert array.dtype == "float64", array.dtype
+        assert array.dtype == "float16", array.dtype
 
         start = self.main_file.tell()
 
         # write the length of the shape of the array (u64)
         # followed by the shape of the array (u64)
-        # followed by the array itself (numpy.to_bytes(), f64)
+        # followed by the array itself (numpy.to_bytes(), f16)
         self.main_file.write(struct.pack("Q", len(array.shape)))
         self.main_file.write(struct.pack("Q" * len(array.shape), *array.shape))
         self.main_file.write(array.tobytes())
@@ -103,8 +103,8 @@ class ContextVectorDB:
         shape = self.main_file.read(8 * shape_len)
         shape = struct.unpack("Q" * shape_len, shape)
 
-        array = self.main_file.read(int(np.prod(shape) * 8))
-        array = np.frombuffer(array, dtype="float64").reshape(shape)
+        array = self.main_file.read(int(np.prod(shape) * 2))
+        array = np.frombuffer(array, dtype="float16").reshape(shape)
 
         return array
 
