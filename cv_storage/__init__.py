@@ -1,24 +1,32 @@
-from typing import Iterable
+from typing import IO, Iterable, Iterator
 import numpy as np
 import struct
 
 import tqdm
 
-
 class ContextVectorDB:
-
-    def __init__(self, main_file, metadata_file):
+    """Class for saving and loading context vectors
+    """
+    def __init__(self, main_file: IO, metadata_file: IO):
         self.main_file = main_file
         self.metadata_file = metadata_file
 
-    def append_context_vector(self, title: str, array: np.ndarray) -> tuple[int, int]:
-        assert array.dtype == "float64", array.dtype
+    def append_context_vector(
+        self,
+        article_title: str,
+        section_name: str,
+        array: np.ndarray
+    ) -> tuple[int, int]:
+        """Adds a context vector to the database. Returns the start and end
+        positions in the binary file
+        """
+        assert array.dtype == "float16", array.dtype
 
         start = self.main_file.tell()
 
         # write the length of the shape of the array (u64)
         # followed by the shape of the array (u64)
-        # followed by the array itself (numpy.to_bytes(), f64)
+        # followed by the array itself (numpy.to_bytes(), f16)
         self.main_file.write(struct.pack("Q", len(array.shape)))
         self.main_file.write(struct.pack("Q" * len(array.shape), *array.shape))
         self.main_file.write(array.tobytes())
@@ -34,11 +42,15 @@ class ContextVectorDB:
         # vectors in parallel.
         self.metadata_file.write(struct.pack("Q", start))
         self.metadata_file.write(struct.pack("Q", end))
-        self.metadata_file.write(struct.pack("Q", len(title)))
-        self.metadata_file.write(title.encode())
+        self.metadata_file.write(struct.pack("Q", len(article_title)))
+        self.metadata_file.write(article_title.encode())
+        self.metadata_file.write(struct.pack("Q", len(section_name)))
+        self.metadata_file.write(section_name.encode())
         return start, end
 
-    def read_metadatum(self):
+    def read_metadatum(self) -> tuple[str, str, int, int] | None:
+        """Read the next item of metadata from the metadata file
+        """
         start = self.metadata_file.read(8)
         if not start:
             return None
@@ -47,14 +59,23 @@ class ContextVectorDB:
         end = self.metadata_file.read(8)
         end = struct.unpack("Q", end)[0]
 
-        title_length = self.metadata_file.read(8)
-        title_length = struct.unpack("Q", title_length)[0]
+        article_title_length = self.metadata_file.read(8)
+        article_title_length = struct.unpack("Q", article_title_length)[0]
 
-        title = self.metadata_file.read(title_length)
-        title = title.decode()
-        return title, (start, end)
+        article_title = self.metadata_file.read(article_title_length)
+        article_title = article_title.decode()
 
-    def read_metadata(self, seek=0):
+        section_name_length = self.metadata_file.read(8)
+        section_name_length = struct.unpack("Q", section_name_length)[0]
+
+        section_name = self.metadata_file.read(section_name_length)
+        section_name = section_name.decode()
+
+        return article_title, section_name, start, end
+
+    def read_metadata(self, seek: int = 0) -> Iterator[tuple[str, str, int, int]]:
+        """Iterate over the whole metadata file
+        """
         if seek is not None:
             self.metadata_file.seek(seek)
 
@@ -64,12 +85,17 @@ class ContextVectorDB:
             else:
                 break
 
-    def read_context_vectors(self):
-        for title, (start, _end) in self.read_metadata():
+    def read_context_vectors(self) -> Iterator[tuple[str, str, np.ndarray]]:
+        """Create an iterator that returns the next context vector. Each element
+        in the iterator is a tuple of (article title, section name, context vector)
+        """
+        for article_title, section_name, start, _ in self.read_metadata():
             array = self.read_context_vector(start)
-            yield title, array
+            yield article_title, section_name, array
 
-    def read_context_vector(self, start):
+    def read_context_vector(self, start: int) -> np.ndarray:
+        """Get a context vector from the data file, starting from the given position
+        """
         self.main_file.seek(start)
         shape_len = self.main_file.read(8)
         shape_len = struct.unpack("Q", shape_len)[0]
@@ -77,47 +103,53 @@ class ContextVectorDB:
         shape = self.main_file.read(8 * shape_len)
         shape = struct.unpack("Q" * shape_len, shape)
 
-        array = self.main_file.read(int(np.prod(shape) * 8))
-        array = np.frombuffer(array, dtype="float64").reshape(shape)
+        array = self.main_file.read(int(np.prod(shape) * 2))
+        array = np.frombuffer(array, dtype="float16").reshape(shape)
 
         return array
 
-
-Index = dict[str, int]
-
-
 class IndexedContextVectorDB:
-    def __init__(self, index: Index, db: ContextVectorDB):
-        self.index = index
+    def __init__(self, main_file: str, metadata_file: str, progress: bool = True):
+        """Open the metadata file, read it into memory and return an IndexedContextVectorDB."""
+        metadata_f = open(metadata_file, 'ab+')
+        main_f = open(main_file, 'ab+')
+        db = ContextVectorDB(main_f, metadata_f)
+
+        metadata_iter = db.read_metadata()
+        if progress:
+            metadata_iter = tqdm.tqdm(metadata_iter)
+
+        self.index_map = self.build_index(metadata_iter)
         self.db = db
 
     @classmethod
-    def open(cls, main_file, metadata_file, progress=True):
-        """Open the metadata file, read it into memory and return an IndexedContextVectorDB."""
-        with open(metadata_file) as metadata_f:
-            with open(main_file) as main_f:
-                db = ContextVectorDB(main_f, metadata_f)
-                metadata_iter = db.read_metadata()
-                if progress:
-                    metadata_iter = tqdm.tqdm(metadata_iter)
-            index = cls.build_index(metadata_iter)
+    def build_index(
+        cls,
+        metadata: Iterator[tuple[str, str, int, int]]
+    ) -> dict[str, dict[str, int]]:
+        index_map = {}
+        for article_title, section_name, start, _ in metadata:
+            index_map.setdefault(article_title, {})
+            index_map[article_title][section_name] = start
+        return index_map
 
-        return cls(index, ContextVectorDB(open(main_file), open(metadata_file)))
+    def has_article(self, article_title: str) -> bool:
+        """Helper function to determine if an article has been processed"""
+        return article_title in self.index_map
 
-    @classmethod
-    def build_index(cls, metadata: Iterable[tuple[str, tuple[int, int]]]):
-        index = {}
-        for key, (start, _end) in metadata:
-            index[key] = start
-        return index
-
-    def get(self, key: str) -> np.ndarray | None:
-        if key not in self.index:
+    def get(self, article_title: str, section_name: str) -> np.ndarray | None:
+        """Get the context vector for a given section in an article
+        """
+        if article_title not in self.index_map:
             return None
-        start = self.index[key]
+        if section_name not in self.index_map[article_title]:
+            return None
+
+        start = self.index_map[article_title][section_name]
         return self.db.read_context_vector(start)
 
-    def insert(self, key: str, value: np.ndarray):
-        start, _end = self.db.append_context_vector(key, value)
-        self.index[key] = start
+    def insert(self, article_title: str, section_name: str, value: np.ndarray):
+        start, _ = self.db.append_context_vector(article_title, section_name, value)
+        self.index_map.setdefault(article_title, {})
+        self.index_map[article_title][section_name] = start
 

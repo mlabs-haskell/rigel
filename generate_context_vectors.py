@@ -3,27 +3,31 @@ import json
 import time
 
 import fire
+import torch
 from tqdm import tqdm
 
 from cv_storage import IndexedContextVectorDB
 from modified_llama.llama import Llama
-import wikipedia_parser
+from wikipedia_parser import IndexedFlatFile
 
 # A generating function that produces articles that haven't been processed yet
 def document_iterator(
     cv_db: IndexedContextVectorDB,
     article_list: list[str],
-    article_database: wikipedia_parser.IndexedFlatFile,
+    article_database: IndexedFlatFile,
 ) -> Iterator[dict]:
     for article_title in article_list:
         # Only yield the article if it's not in the database yet
-        if cv_db.get(article_title) is None:
+        if not cv_db.has_article(article_title):
             article_json = article_database.get(article_title)
-            if "}{" in article_json:
-                article_json, _ = article_json.split("}{")
-                article_json += "}"
 
-            # Read as a JSON
+            # Sometimes the offsets are off, so the json will contain the start
+            # of the next article. Account for that
+            if "\n}{" in article_json:
+                article_json, _ = article_json.split("\n}{")
+                article_json += "\n}"
+
+            # Create a dictionary from JSON string
             article = json.loads(article_json)
             yield article
 
@@ -60,9 +64,6 @@ def main(
         for line in file:
             article_list.append(line.strip())
 
-    cv_db = IndexedContextVectorDB.open(open(cv_index_file), open(cv_data_file))
-    articles_db = wikipedia_parser.IndexedFlatFile.open(open(content_index_file), open(content_data_file))
-
     # Create the generator - very resource intensive
     print("Building generator")
     generator = Llama.build(
@@ -73,10 +74,18 @@ def main(
     )
     print("Built generator")
 
+    # Create the context vector database
+    cv_db = IndexedContextVectorDB(cv_index_file, cv_data_file)
+    articles_db = IndexedFlatFile(
+        open(content_index_file, 'r'),
+        open(content_data_file, 'r')
+    )
+
     # Iterate through each unprocessed article, get its context vectors, and write to the db
     for article in document_iterator(cv_db, article_list, articles_db):
         start = time.time()
-        print("Processing", article["section_name"])
+        article_title = article["section_name"]
+        print("Processing", article_title)
 
         # Get the article texts and tokenize them
         texts = list(generate_texts(article))
@@ -94,16 +103,19 @@ def main(
             )
 
             for j in range(len(batch_context_vectors)):
-                (section, _) = batched_tokens[j]
-                context_vectors.append((section, batch_context_vectors[j]))
+                (section_name, _) = batched_tokens[j]
+                context_vectors.append((section_name, batch_context_vectors[j]))
 
-        for section, context_vector in context_vectors:
-            # TODO: section or article["section_name"]
-            # @nate please clarify
-            cv_db.insert(section, context_vector)
+        # Insert context vectors into DB
+        for section_name, context_vector in context_vectors:
+            cv_db.insert(
+                article_title,
+                section_name,
+                context_vector.cpu().detach().numpy()
+            )
 
         elapsed = time.time() - start
-        print(f"Finished processing {article['section_name']} in {elapsed} seconds")
+        print(f"Finished processing {article_title} in {elapsed} seconds")
 
 if __name__ == "__main__":
     fire.Fire(main)
