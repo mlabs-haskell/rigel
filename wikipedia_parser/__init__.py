@@ -6,6 +6,7 @@ utility.
 import os
 from typing import Iterable, TextIO
 
+import mmap
 import tqdm
 
 
@@ -32,6 +33,8 @@ class IndexedFlatFile:
 
     def build_index(self, *, show_progress: bool = False):
         index_file = open(self.index_filename)
+        mm = mmap.mmap(index_file.fileno(), 0, prot=mmap.PROT_READ)
+
         index_file_len = file_len(index_file)
 
         progress_bar = None
@@ -46,10 +49,10 @@ class IndexedFlatFile:
             )
 
         data_file_len = file_len(self.data_file)
-
         index_map = {}
         last_key = None
-        while line := index_file.readline():
+        while line := mm.readline():
+            line = line.decode()
             offset, key = line.split(": ", maxsplit=1)
             key = key.rstrip("\n")
             offset = int(offset)
@@ -64,7 +67,9 @@ class IndexedFlatFile:
             last_key = key
 
             if progress_bar is not None:
-                progress_bar.update(index_file.tell() - progress_bar.n)
+                inc = mm.tell() - progress_bar.n
+                if inc > 2 * 1024 * 1024:
+                    progress_bar.update(inc)
 
         self.index_map = index_map
 
