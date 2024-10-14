@@ -9,6 +9,10 @@ from typing import Iterable, TextIO
 import tqdm
 
 
+def file_len(file) -> int:
+    return os.fstat(file.fileno()).st_size
+
+
 class IndexedFlatFile:
     def __init__(
         self,
@@ -18,21 +22,34 @@ class IndexedFlatFile:
         show_progress: bool = False,
     ):
         """Open the index file, read it into memory and return an IndexedFlatFile."""
-        index_file = open(index_filename)
-        data_file = open(data_filename, "rb")
-        file_len = os.fstat(data_file.fileno()).st_size
-        if show_progress:
-            index_file = tqdm.tqdm(index_file, desc="Reading index file")
-        self.index_map = self.build_index(index_file, file_len)
-        self.data_file = data_file
 
-    @classmethod
-    def build_index(
-        cls, index_file: Iterable[str], file_len: int
-    ) -> dict[str, tuple[int, int]]:
+        self.index_filename = index_filename
+        self.data_filename = data_filename
+
+        self.data_file = open(data_filename, "rb")
+
+        self.build_index(show_progress=show_progress)
+
+    def build_index(self, *, show_progress: bool = False):
+        index_file = open(self.index_filename)
+        index_file_len = file_len(index_file)
+
+        progress_bar = None
+        if show_progress:
+            print("Reading index file:")
+            progress_bar = tqdm.tqdm(
+                desc=self.index_filename,
+                unit="B",
+                unit_scale=True,
+                unit_divisor=1024,
+                total=index_file_len,
+            )
+
+        data_file_len = file_len(self.data_file)
+
         index_map = {}
         last_key = None
-        for line in index_file:
+        while line := index_file.readline():
             offset, key = line.split(": ", maxsplit=1)
             key = key.rstrip("\n")
             offset = int(offset)
@@ -42,10 +59,14 @@ class IndexedFlatFile:
                 index_map[last_key] = (start, end)
 
             start = offset
-            end = file_len
+            end = data_file_len
             index_map[key] = (start, end)
             last_key = key
-        return index_map
+
+            if progress_bar is not None:
+                progress_bar.update(index_file.tell() - progress_bar.n)
+
+        self.index_map = index_map
 
     def get(self, article_title: str) -> str:
         """Get the JSON string containing a given article.
