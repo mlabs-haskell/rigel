@@ -21,12 +21,6 @@ def document_iterator(
         if not cv_db.has_article(article_title):
             article_json = article_database.get(article_title)
 
-            # Sometimes the offsets are off, so the json will contain the start
-            # of the next article. Account for that
-            if "\n}{" in article_json:
-                article_json, _ = article_json.split("\n}{")
-                article_json += "\n}"
-
             # Create a dictionary from JSON string
             article = json.loads(article_json)
             yield article
