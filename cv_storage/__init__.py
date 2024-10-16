@@ -1,15 +1,29 @@
-from typing import IO, Iterable, Iterator
+from pathlib import Path
+from typing import BinaryIO, Iterator
 import numpy as np
 import struct
 
 import tqdm
 
+
 class ContextVectorDB:
-    """Class for saving and loading context vectors
-    """
-    def __init__(self, main_file: IO, metadata_file: IO):
-        self.main_file = main_file
-        self.metadata_file = metadata_file
+    """Class for saving and loading context vectors"""
+
+    def __init__(self, folder: Path):
+        if folder.exists():
+            if not folder.is_dir():
+                raise ValueError("Given path is not a folder: " + str(folder))
+        else:
+            folder.mkdir()
+        index_file_path = folder / "index.cvdb"
+        data_file_path = folder / "data.cvdb"
+
+        self.metadata_file = open(index_file_path, "a+b")
+        self.data_file = open(data_file_path, "a+b")
+
+    def __del__(self):
+        self.metadata_file.close()
+        self.data_file.close()
 
     def append_context_vector(
         self,
@@ -22,16 +36,16 @@ class ContextVectorDB:
         """
         assert array.dtype == "float16", array.dtype
 
-        start = self.main_file.tell()
+        start = self.data_file.tell()
 
         # write the length of the shape of the array (u64)
         # followed by the shape of the array (u64)
         # followed by the array itself (numpy.to_bytes(), f16)
-        self.main_file.write(struct.pack("Q", len(array.shape)))
-        self.main_file.write(struct.pack("Q" * len(array.shape), *array.shape))
-        self.main_file.write(array.tobytes())
+        self.data_file.write(struct.pack("Q", len(array.shape)))
+        self.data_file.write(struct.pack("Q" * len(array.shape), *array.shape))
+        self.data_file.write(array.tobytes())
 
-        end = self.main_file.tell()
+        end = self.data_file.tell()
 
         # write start: u64, end: u64, length of title: u64, title: str
         # Note: We don't _need_ to write `end` into the metadata file, because
@@ -94,26 +108,24 @@ class ContextVectorDB:
             yield article_title, section_name, array
 
     def read_context_vector(self, start: int) -> np.ndarray:
-        """Get a context vector from the data file, starting from the given position
-        """
-        self.main_file.seek(start)
-        shape_len = self.main_file.read(8)
+        """Get a context vector from the data file, starting from the given position"""
+        self.data_file.seek(start)
+        shape_len = self.data_file.read(8)
         shape_len = struct.unpack("Q", shape_len)[0]
 
-        shape = self.main_file.read(8 * shape_len)
+        shape = self.data_file.read(8 * shape_len)
         shape = struct.unpack("Q" * shape_len, shape)
 
-        array = self.main_file.read(int(np.prod(shape) * 2))
+        array = self.data_file.read(int(np.prod(shape) * 2))
         array = np.frombuffer(array, dtype="float16").reshape(shape)
 
         return array
 
+
 class IndexedContextVectorDB:
-    def __init__(self, main_file: str, metadata_file: str, progress: bool = True):
+    def __init__(self, folder: Path, progress: bool = True):
         """Open the metadata file, read it into memory and return an IndexedContextVectorDB."""
-        metadata_f = open(metadata_file, 'ab+')
-        main_f = open(main_file, 'ab+')
-        db = ContextVectorDB(main_f, metadata_f)
+        db = ContextVectorDB(folder)
 
         metadata_iter = db.read_metadata()
         if progress:
