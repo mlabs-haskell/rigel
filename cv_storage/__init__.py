@@ -26,10 +26,7 @@ class ContextVectorDB:
         self.data_file.close()
 
     def append_context_vector(
-        self,
-        article_title: str,
-        section_name: str,
-        array: np.ndarray
+        self, article_title: str, section_name: str, array: np.ndarray
     ) -> tuple[int, int]:
         """Adds a context vector to the database. Returns the start and end
         positions in the binary file
@@ -63,8 +60,7 @@ class ContextVectorDB:
         return start, end
 
     def read_metadatum(self) -> tuple[str, str, int, int] | None:
-        """Read the next item of metadata from the metadata file
-        """
+        """Read the next item of metadata from the metadata file"""
         start = self.metadata_file.read(8)
         if not start:
             return None
@@ -88,8 +84,7 @@ class ContextVectorDB:
         return article_title, section_name, start, end
 
     def read_metadata(self, seek: int = 0) -> Iterator[tuple[str, str, int, int]]:
-        """Iterate over the whole metadata file
-        """
+        """Iterate over the whole metadata file"""
         if seek is not None:
             self.metadata_file.seek(seek)
 
@@ -136,8 +131,7 @@ class IndexedContextVectorDB:
 
     @classmethod
     def build_index(
-        cls,
-        metadata: Iterator[tuple[str, str, int, int]]
+        cls, metadata: Iterator[tuple[str, str, int, int]]
     ) -> dict[str, dict[str, int]]:
         index_map = {}
         for article_title, section_name, start, _ in metadata:
@@ -150,8 +144,7 @@ class IndexedContextVectorDB:
         return article_title in self.index_map
 
     def get(self, article_title: str, section_name: str) -> np.ndarray | None:
-        """Get the context vector for a given section in an article
-        """
+        """Get the context vector for a given section in an article"""
         if article_title not in self.index_map:
             return None
         if section_name not in self.index_map[article_title]:
