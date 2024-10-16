@@ -9,6 +9,7 @@ from tqdm import tqdm
 from cv_storage import ContextVectorDB, IndexedContextVectorDB
 from modified_llama.llama import Llama
 from wikipedia_parser import IndexedFlatFile
+from wikipedia_parser.articles import generate_texts
 
 
 # A generating function that produces articles that haven't been processed yet
@@ -25,23 +26,6 @@ def document_iterator(
             # Create a dictionary from JSON string
             article = json.loads(article_json)
             yield article
-
-
-def generate_texts(article) -> Iterator[tuple[str, str]]:
-    # Generate text per section
-    def get_text_by_section(section_name, article):
-        if section_name == "":
-            section_name = "root"
-        else:
-            subsection_name = article["section_name"]
-            section_name = f"{section_name}\{subsection_name}"
-
-        yield (section_name, article["text"])
-
-        for child in article["children"]:
-            yield from get_text_by_section(section_name, child)
-
-    yield from get_text_by_section("", article)
 
 
 def main(
