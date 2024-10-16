@@ -13,9 +13,10 @@ from nltk.tokenize import word_tokenize
 from collections.abc import Iterable
 import fire
 import json
+from pathlib import Path
 from sklearn.feature_extraction.text import TfidfVectorizer
 import string
-
+from tqdm import tqdm
 
 def _tokenize(text: str) -> list[str]:
     # Remove punctuation and lower case the text
@@ -50,22 +51,31 @@ def get_all_tfidf(
         contents_index_file,
         contents_data_file,
     )
+    cvdb_folder = Path(cvdb_folder)
     cv_db = ContextVectorDB(cvdb_folder)
 
     texts_map = {}
-    for article_title in cv_db.get_article_titles():
+    for article_title in tqdm(cv_db.get_article_titles(), leave=False):
         article_str = article_contents_db.get(article_title)
         if article_str is None:
             print(f"Article {article_title} could not be found in the index file")
             continue
 
         article = json.loads(article_str)
-        for section_name in cv_db.get_section_names(article_title):
-            text = extract_section_text(section_name, article)
+        for section_name in tqdm(cv_db.get_section_names(article_title), leave=False):
+            # Create list of subsections to walk through
+            section_names = [article_title] + section_name.split('\\')[1:]
+
+            # Extract text from the given subsection
+            text = extract_section_text(section_names, article)
+            if text is None:
+                raise ValueError(
+                    f"Article {article_title} down not have section {section_name}"
+                )
             texts_map[(article_title, section_name)] = text
-            print(f"Processed {article_title}\\{section_name}")
 
     # Do TFIDF vectorization
+    print("Finished collecting text, performing TFIDF vectorization...")
     article_keys = list(texts_map.keys())
     tfidfs = get_tfidf(texts_map.values())
 
