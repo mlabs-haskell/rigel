@@ -3,3 +3,4 @@ parsed_articles/
 *.py[cod]
 __pycache__/
 *.pt
+.env
