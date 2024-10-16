@@ -5,7 +5,6 @@ from typing import Iterator, Literal
 import torch
 
 from cv_storage import ContextVectorDB
-from wikipedia_parser import IndexedFlatFile
 
 
 class ContextVectorDataLoader:
