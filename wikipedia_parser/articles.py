@@ -17,3 +17,15 @@ def generate_texts(article) -> Iterator[tuple[str, str]]:
 
     yield from get_text_by_section("", article)
 
+
+def extract_section_text(section_title: str, article: dict) -> str:
+    if section_title == "root" or section_title == article["section_name"]:
+        return article["text"]
+
+    key, *rest = section_title.split("\\", maxsplit=1)
+    if len(rest) == 0:
+        return None
+
+    for child in article["children"]:
+        if child["section_name"].startswith(key):
+            return extract_section_text(rest[0], child)
