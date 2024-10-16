@@ -3,7 +3,6 @@ from wikipedia_parser import IndexedFlatFile
 from wikipedia_parser.articles import extract_section_text
 
 import nltk
-
 nltk.download("punkt")
 nltk.download("stopwords")
 

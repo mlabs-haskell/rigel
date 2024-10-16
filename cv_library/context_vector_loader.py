@@ -72,17 +72,12 @@ class ContextVectorDataLoader:
             # Get the context vector
             context_vector = self.cv_db.get(article_title, section_name)
             context_vector = torch.tensor(context_vector)
-            # If not the right size, skip
-            # We can't remove it because the ContextVectorDB doesn't support deletion yet
-            if context_vector.shape[0] != 128 or context_vector.shape[1] != 4096:
-                print(f"ALERT: {article_title}, {section_name}")
-                print(f"\tShape: {context_vector.shape}")
-                print("\tSkipping...")
-                continue
-            Xs.append(context_vector)
 
-            # Record the document id
-            article_keys.append((article_title, section_name))
+            # For now, only gather CVs that are of a standard length
+            # This will change soon to allow all CV lengths
+            if context_vector.shape[0] == 1024:
+                Xs.append(context_vector)
+                article_keys.append((article_title, section_name))
         X = torch.stack(Xs)
 
         # Create y matrix containing similarity score between all data points

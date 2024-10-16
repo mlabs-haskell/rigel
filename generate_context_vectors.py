@@ -1,12 +1,12 @@
 from collections.abc import Iterator
 import json
+from pathlib import Path
 import time
 
 import fire
-import torch
 from tqdm import tqdm
 
-from cv_storage import ContextVectorDB, IndexedContextVectorDB
+from cv_storage import ContextVectorDB
 from modified_llama.llama import Llama
 from wikipedia_parser import IndexedFlatFile
 from wikipedia_parser.articles import generate_texts
@@ -56,7 +56,8 @@ def main(
     print("Built generator")
 
     # Create the context vector database
-    cv_db = IndexedContextVectorDB(cv_db_folder)
+    cv_db_folder = Path(cv_db_folder)
+    cv_db = ContextVectorDB(cv_db_folder)
     articles_db = IndexedFlatFile(content_index_file, content_data_file)
 
     # Iterate through each unprocessed article, get its context vectors, and write to the db
