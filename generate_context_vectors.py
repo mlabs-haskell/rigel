@@ -20,12 +20,12 @@ def document_iterator(
 ) -> Iterator[dict]:
     for article_title in article_list:
         # Only yield the article if it's not in the database yet
-        if not cv_db.has_article(article_title):
-            article_json = article_database.get(article_title)
-
-            # Create a dictionary from JSON string
-            article = json.loads(article_json)
-            yield article
+        if cv_db.has_article(article_title):
+            continue
+        article_json = article_database.get(article_title)
+        # Create a dictionary from JSON string
+        article = json.loads(article_json)
+        yield article
 
 
 def main(
