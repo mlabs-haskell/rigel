@@ -18,14 +18,21 @@ def generate_texts(article) -> Iterator[tuple[str, str]]:
     yield from get_text_by_section("", article)
 
 
-def extract_section_text(section_title: str, article: dict) -> str:
-    if section_title == "root" or section_title == article["section_name"]:
+def extract_section_text(section_titles: list[str], article: dict) -> str | None:
+    # Sanity check
+    section_title, *sub_sections = section_titles
+    assert section_title == article["section_name"]
+
+    # See if we're at the section we need
+    if len(sub_sections) == 0:
         return article["text"]
 
-    key, *rest = section_title.split("\\", maxsplit=1)
-    if len(rest) == 0:
-        return None
-
+    # Find applicable children and move down the tree through them
     for child in article["children"]:
-        if child["section_name"].startswith(key):
-            return extract_section_text(rest[0], child)
+        if child["section_name"] == sub_sections[0]:
+            extracted_text = extract_section_text(sub_sections, child)
+            if extracted_text is not None:
+                return extracted_text
+
+    # If we've gotten this far, we haven't found what we're looking for
+    return None

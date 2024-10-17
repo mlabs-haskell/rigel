@@ -4,3 +4,7 @@ parsed_articles/
 __pycache__/
 *.pt
 .env
+.venv/
+*.bin
+all.txt
+*.cvdb
