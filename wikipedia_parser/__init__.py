@@ -73,6 +73,9 @@ class IndexedFlatFile:
 
         self.index_map = index_map
 
+    def has(self, article_title: str) -> bool:
+        return article_title in self.index_map
+
     def get(self, article_title: str) -> str:
         """Get the JSON string containing a given article.
         The JSON structure is:
