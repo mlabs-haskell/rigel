@@ -81,10 +81,13 @@ def get_all_tfidf(
 
     document_tfidfs = {}
     for (article_title, section_name), tfidf in zip(article_keys, tfidfs):
-        if article_title not in document_tfidfs:
-            document_tfidfs[article_title] = {}
+        seq_len = cv_db.get(article_title, section_name).shape[0]
 
-        document_tfidfs[article_title][section_name] = tfidf
+        document_tfidfs.setdefault(article_title, {})
+        document_tfidfs[article_title][section_name] = {
+            "tfidf": tfidf,
+            "seq_len": seq_len
+        }
 
     # Write to designated file
     with open(out_file, "w") as file:

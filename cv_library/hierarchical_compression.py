@@ -73,13 +73,18 @@ class Attention(nn.Module):
         return self.wo(output)
 
 class HierarchicalAttention(nn.Module):
-    def __init__(self, cv_size: torch.Size, reduction: int = 8):
+    def __init__(
+        self,
+        standard_cv_size: torch.Size = torch.Size([1024, 4096]),
+        reduction: int = 8
+    ):
         super().__init__()
 
         stack = []
         self.freqs_cis = []
-        curr_features = cv_size[-1]
-        seq_len = cv_size[-2]
+        self.standard_cv_size = standard_cv_size
+        curr_features = standard_cv_size[-1]
+        seq_len = standard_cv_size[-2]
         while curr_features > Attention.NUM_HEADS and curr_features > reduction:
             freqs_cis = precompute_freqs_cis(curr_features // Attention.NUM_HEADS, seq_len)
             self.freqs_cis.append(freqs_cis)
@@ -95,6 +100,8 @@ class HierarchicalAttention(nn.Module):
     def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
         outputs = []
         for layer, freqs_cis in zip(self.stack, self.freqs_cis):
+            if self.standard_cv_size != x.shape[1:]:
+                freqs_cis = precompute_freqs_cis(x.shape[-1] // Attention.NUM_HEADS, x.shape[-2])
             x = layer(x, freqs_cis)
             x = F.tanh(x)
             outputs.append(x)
@@ -102,10 +109,15 @@ class HierarchicalAttention(nn.Module):
         return outputs
 
 class HierarchicalLinear(nn.Module):
-    def __init__(self, cv_size: torch.Size, first_layer_out: int = 512, reduction: int = 16):
+    def __init__(
+        self,
+        standard_cv_size: torch.Size = torch.Size([1024, 4096]),
+        first_layer_out: int = 512,
+        reduction: int = 16
+    ):
         super().__init__()
 
-        curr_features = cv_size[-1] * cv_size[-2]
+        curr_features = standard_cv_size[-1] * standard_cv_size[-2]
         stack = [nn.Linear(curr_features, first_layer_out)]
         curr_features = first_layer_out
         print(f"Layer #{len(stack)} output size: {curr_features}")
@@ -165,8 +177,20 @@ def train_compression_network(
     loss_batch_size: int = 100,
     reduction_factor: int | None = None
 ) -> HierarchicalAttention:
+    # Check if checkpoint already exists
+    epoch_losses = []
+    model_state_dict = None
+    optimizer_state_dict = None
+    checkpoint_path = Path(checkpoint_file)
+    if checkpoint_path.is_file():
+        checkpoint = torch.load(checkpoint_path)
+        epoch_losses = checkpoint['losses']
+        model_state_dict = checkpoint['model_state_dict']
+        optimizer_state_dict = checkpoint['optimizer_state_dict']
+        reduction_factor = checkpoint['reduction_factor']
+
     # Set up the network
-    kwargs = {'cv_size': [128, 4096]}
+    kwargs = {'standard_cv_size': [1024, 4096]}
     if reduction_factor is not None:
         kwargs['reduction'] = reduction_factor
     match network_type:
@@ -182,14 +206,11 @@ def train_compression_network(
             )
     optimizer = Adam(network.parameters())
 
-    # Check if checkpoint already exists
-    epoch_losses = []
-    checkpoint_path = Path(checkpoint_file)
-    if checkpoint_path.is_file():
-        checkpoint = torch.load(checkpoint_path)
-        network.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        epoch_losses = checkpoint['losses']
+    # Load state dicts if available
+    if model_state_dict is not None:
+        network.load_state_dict(model_state_dict)
+    if optimizer_state_dict is not None:
+        optimizer.load_state_dict(optimizer_state_dict)
 
     # Iterate through the epochs
     start_epoch = len(epoch_losses)
@@ -201,13 +222,11 @@ def train_compression_network(
         for X, y in batch_pbar:
             # Push the data through the network
             optimizer.zero_grad()
-            factor = 2.0 ** len(network.stack)
-            batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, factor)
+            batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, 1.0)
 
             # Do a step of gradient descent
             batch_loss.backward()
             optimizer.step()
-            factor /= 2.0
 
             # Display the loss for this batch
             disp_loss = batch_loss.item() / (len(X) ** 2)
@@ -221,9 +240,7 @@ def train_compression_network(
             total_comparisons = 0
             for X, y in batch_pbar:
                 # Evaluate the batch
-                factor = 2.0 ** len(network.stack)
-                batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, factor)
-                factor /= 2.0
+                batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, 1.0)
 
                 # Increment totals
                 total_loss += batch_loss
@@ -242,7 +259,8 @@ def train_compression_network(
         torch.save({
             'model_state_dict': network.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
-            'losses': epoch_losses
+            'losses': epoch_losses,
+            'reduction_factor': reduction_factor
         }, checkpoint_file)
 
     return network

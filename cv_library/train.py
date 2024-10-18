@@ -13,7 +13,8 @@ def train(
     checkpoint_file: str,
     network_type: str,
     batch_size: int = 150,
-    tfidf_file: str = "../tfidf.json",
+    cvdb_folder: str = "context_vectors",
+    tfidf_file: str = "tfidf.json",
     epochs: int = 100,
     reduction_factor: int | None = None,
     device: str = DEVICE
@@ -24,8 +25,8 @@ def train(
     with torch.device(device):
         torch.set_default_dtype(torch.float32)
 
-        train_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'train')
-        val_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'val')
+        train_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'train', cvdb_folder)
+        val_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'val', cvdb_folder)
         train_compression_network(
             train_loader,
             val_loader,
