@@ -143,7 +143,8 @@ class HierarchicalLinear(nn.Module):
 
 def load_model(
     checkpoint_file: str,
-    network_type: Literal["attention", "linear"]
+    network_type: Literal["attention", "linear"],
+    reduction_factor: int | None = None
 ) -> tuple[
     HierarchicalAttention | HierarchicalLinear,
     nn.Module,
@@ -223,7 +224,11 @@ def train_compression_network(
     loss_batch_size: int = 100,
     reduction_factor: int | None = None
 ) -> HierarchicalAttention:
-    network, loss_fn, optimizer, epoch_losses = load_model(checkpoint_file, network_type)
+    network, loss_fn, optimizer, epoch_losses = load_model(
+        checkpoint_file,
+        network_type,
+        reduction_factor
+    )
 
     # Iterate through the epochs
     start_epoch = len(epoch_losses)
