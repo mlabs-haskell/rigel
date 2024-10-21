@@ -141,6 +141,52 @@ class HierarchicalLinear(nn.Module):
 
         return outputs
 
+def load_model(
+    checkpoint_file: str,
+    network_type: Literal["attention", "linear"]
+) -> tuple[
+    HierarchicalAttention | HierarchicalLinear,
+    nn.Module,
+    torch.optim.Optimizer,
+    list[float]
+]:
+    # Check if checkpoint already exists
+    epoch_losses = []
+    model_state_dict = None
+    optimizer_state_dict = None
+    checkpoint_path = Path(checkpoint_file)
+    if checkpoint_path.is_file():
+        checkpoint = torch.load(checkpoint_path)
+        epoch_losses = checkpoint['losses']
+        model_state_dict = checkpoint['model_state_dict']
+        optimizer_state_dict = checkpoint['optimizer_state_dict']
+        reduction_factor = checkpoint['reduction_factor']
+
+    # Set up the network and optimizer
+    kwargs = {'standard_cv_size': [1024, 4096]}
+    if reduction_factor is not None:
+        kwargs['reduction'] = reduction_factor
+    match network_type:
+        case "attention":
+            network = HierarchicalAttention(**kwargs)
+            loss_fn = SequenceLoss()
+        case "linear":
+            network = HierarchicalLinear(**kwargs)
+            loss_fn = CosineSimilarityLoss()
+        case _:
+            raise ValueError(
+                f"train_compression_network: {network_type} not a recognized network type"
+            )
+    optimizer = Adam(network.parameters())
+
+    # Load state dicts if available
+    if model_state_dict is not None:
+        network.load_state_dict(model_state_dict)
+    if optimizer_state_dict is not None:
+        optimizer.load_state_dict(optimizer_state_dict)
+
+    return network, loss_fn, optimizer, epoch_losses
+
 def run_batch(
     X: torch.Tensor,
     y: torch.Tensor,
@@ -177,40 +223,7 @@ def train_compression_network(
     loss_batch_size: int = 100,
     reduction_factor: int | None = None
 ) -> HierarchicalAttention:
-    # Check if checkpoint already exists
-    epoch_losses = []
-    model_state_dict = None
-    optimizer_state_dict = None
-    checkpoint_path = Path(checkpoint_file)
-    if checkpoint_path.is_file():
-        checkpoint = torch.load(checkpoint_path)
-        epoch_losses = checkpoint['losses']
-        model_state_dict = checkpoint['model_state_dict']
-        optimizer_state_dict = checkpoint['optimizer_state_dict']
-        reduction_factor = checkpoint['reduction_factor']
-
-    # Set up the network
-    kwargs = {'standard_cv_size': [1024, 4096]}
-    if reduction_factor is not None:
-        kwargs['reduction'] = reduction_factor
-    match network_type:
-        case "attention":
-            network = HierarchicalAttention(**kwargs)
-            loss_fn = SequenceLoss()
-        case "linear":
-            network = HierarchicalLinear(**kwargs)
-            loss_fn = CosineSimilarityLoss()
-        case _:
-            raise ValueError(
-                f"train_compression_network: {network_type} not a recognized network type"
-            )
-    optimizer = Adam(network.parameters())
-
-    # Load state dicts if available
-    if model_state_dict is not None:
-        network.load_state_dict(model_state_dict)
-    if optimizer_state_dict is not None:
-        optimizer.load_state_dict(optimizer_state_dict)
+    network, loss_fn, optimizer, epoch_losses = load_model(checkpoint_file, network_type)
 
     # Iterate through the epochs
     start_epoch = len(epoch_losses)
