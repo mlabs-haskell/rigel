@@ -196,10 +196,10 @@ def train_compression_network(
     match network_type:
         case "attention":
             network = HierarchicalAttention(**kwargs)
-            loss_fn = SequenceLoss(y_scale=2)
+            loss_fn = SequenceLoss()
         case "linear":
             network = HierarchicalLinear(**kwargs)
-            loss_fn = CosineSimilarityLoss(y_scale=2)
+            loss_fn = CosineSimilarityLoss()
         case _:
             raise ValueError(
                 f"train_compression_network: {network_type} not a recognized network type"

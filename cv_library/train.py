@@ -62,7 +62,7 @@ def min_loss(checkpoint_file: str = "model.pt"):
 def count_ys():
     """Function to count up how many targets are 0 vs how many are not
     """
-    loader = ContextVectorDataLoader(150, "../tfidf.json", 'train')
+    loader = ContextVectorDataLoader(150, "tfidf.json", 'train', "context_vectors")
     zeros = 0
     others = 0
 
