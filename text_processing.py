@@ -36,7 +36,7 @@ def _tokenize(text: str) -> list[str]:
 def get_tfidf(strings: Iterable[list[str]]) -> list[list[float]]:
     tokens = map(lambda s: " ".join(_tokenize(s)), strings)
 
-    tfidf = TfidfVectorizer(max_df=0.9, min_df=0.1, max_features=1000)
+    tfidf = TfidfVectorizer(max_df=0.9, min_df=0.05)
     vectors = tfidf.fit_transform(tokens)
     return vectors.toarray().tolist()
 
@@ -81,10 +81,13 @@ def get_all_tfidf(
 
     document_tfidfs = {}
     for (article_title, section_name), tfidf in zip(article_keys, tfidfs):
-        if article_title not in document_tfidfs:
-            document_tfidfs[article_title] = {}
+        seq_len = cv_db.get(article_title, section_name).shape[0]
 
-        document_tfidfs[article_title][section_name] = tfidf
+        document_tfidfs.setdefault(article_title, {})
+        document_tfidfs[article_title][section_name] = {
+            "tfidf": tfidf,
+            "seq_len": seq_len
+        }
 
     # Write to designated file
     with open(out_file, "w") as file:
