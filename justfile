@@ -9,3 +9,4 @@ query_generator article k:
 tests:
 	python -m cv_storage.tests
 	python -m wikipedia_parser.tests
+	python -m cv_hierarchical_storage.tests
