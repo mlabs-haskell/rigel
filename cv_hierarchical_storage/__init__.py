@@ -151,7 +151,7 @@ class Database:
 
     def _check_vec_sizes(self, vecs: list[np.ndarray]):
         """Ensure the shape of a vector at each level is [seq_len, level.vec_size]"""
-        assert len(vecs) == len(self.levels)
+        assert len(vecs) == len(self.levels), f"{len(vecs)} != {len(self.levels)}"
         for vec, level in zip(vecs, self.levels):
             assert vec.shape[self.config.compression_dimension] == level.vec_size
 
