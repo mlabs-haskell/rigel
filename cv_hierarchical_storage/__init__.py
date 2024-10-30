@@ -1,3 +1,4 @@
+import dataclasses
 from dataclasses import dataclass
 import json
 from os import write
@@ -161,7 +162,8 @@ def check_config_file(path: Path, config: DBConfig):
     else:
         with open(path, "r") as file:
             file_config = json.load(file)
-        if file_config != config:
+        expected_config = dataclasses.asdict(config)
+        if file_config != expected_config:
             raise ValueError(
                 f"Config file {path} does not match expected config: {config} != {file_config}"
             )
