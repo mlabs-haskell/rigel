@@ -1,40 +1,53 @@
-from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 import numpy as np
 
-from bin_storage import (
-    read_int64,
-    read_ndarray,
-    read_str,
-    write_int64,
-    write_ndarray,
-    write_str,
-)
+from indexed_binary_db import FileSpan, IndexedBinaryDB
+from indexed_binary_db.reader import BinaryReader
+from indexed_binary_db.writer import BinaryWriter
 
 
-@dataclass
-class CVMetadata:
-    start: int
-    end: int  # Note: We don't _need_ to store end, but it simplifies the read logic.
+class CVMetadata(NamedTuple):
     article_title: str
     section_name: str
+
+    def write(self, writer: BinaryWriter):
+        writer.write_str(self.article_title)
+        writer.write_str(self.section_name)
+
+    @classmethod
+    def read(cls, reader: BinaryReader):
+        article_title = reader.read_str()
+        section_name = reader.read_str()
+        return CVMetadata(article_title=article_title, section_name=section_name)
+
+
+class CV(NamedTuple):
+    cv: np.ndarray
+
+    def write(self, writer: BinaryWriter):
+        writer.write_ndarray(self.cv)
+
+    @classmethod
+    def read(cls, reader: BinaryReader):
+        return CV(reader.read_ndarray())
 
 
 class CVMetadataCache:
     def __init__(self):
-        self.cache = {}
+        self.cache: dict[str, dict[str, FileSpan]] = {}
 
     def clear(self):
         self.cache.clear()
 
-    def add(self, metadata: CVMetadata):
+    def add(self, metadata: CVMetadata, file_span: FileSpan):
         title = metadata.article_title
         section = metadata.section_name
         if title not in self.cache:
             self.cache[title] = {}
-        self.cache[title][section] = metadata
+        self.cache[title][section] = file_span
 
-    def get(self, article_title: str, section_name: str) -> CVMetadata | None:
+    def get(self, article_title: str, section_name: str) -> FileSpan | None:
         if article_title not in self.cache:
             return None
         return self.cache[article_title].get(section_name)
@@ -63,14 +76,10 @@ class ContextVectorDB:
         index_file_path = folder / "index.cvdb"
         data_file_path = folder / "data.cvdb"
 
-        self.metadata_file = open(index_file_path, "a+b")
-        self.data_file = open(data_file_path, "a+b")
+        self._db = IndexedBinaryDB(index_file_path, data_file_path, CVMetadata, CV)
+
         self.metadata_cache = CVMetadataCache()
         self._build_metadata_cache()
-
-    def __del__(self):
-        self.metadata_file.close()
-        self.data_file.close()
 
     # Public interface
 
@@ -94,56 +103,23 @@ class ContextVectorDB:
         return self.metadata_cache.get_section_names(article_title)
 
     def insert(self, article_title: str, section_name: str, cv: np.ndarray):
-        start = self.data_file.tell()
-        self._write_context_vector(cv)
-        end = self.data_file.tell()
-
-        metadata = CVMetadata(start, end, article_title, section_name)
-        self._write_metadata(metadata)
-        self._cache_metadata(metadata)
+        metadata = CVMetadata(article_title, section_name)
+        file_span = self._db.write(metadata, CV(cv))
+        self._cache_metadata(metadata, file_span)
 
     # Context vectors
 
-    def _read_context_vector(self, start):
-        self.data_file.seek(start)
-        return read_ndarray(self.data_file)
-
-    def _write_context_vector(self, array: np.ndarray):
-        write_ndarray(self.data_file, array)
-        self.data_file.flush()
-
-    # Metadata
-
-    def _read_metadata(self) -> CVMetadata:
-        start = read_int64(self.metadata_file)
-        end = read_int64(self.metadata_file)
-        article_title = read_str(self.metadata_file)
-        section_name = read_str(self.metadata_file)
-        return CVMetadata(
-            start,
-            end,
-            article_title,
-            section_name,
-        )
-
-    def _write_metadata(self, metadata: CVMetadata):
-        write_int64(self.metadata_file, metadata.start)
-        write_int64(self.metadata_file, metadata.end)
-        write_str(self.metadata_file, metadata.article_title)
-        write_str(self.metadata_file, metadata.section_name)
-        self.metadata_file.flush()
+    def _read_context_vector(self, start: int):
+        cv: CV = self._db.read(start)
+        return cv.cv
 
     # Metadata cache
 
     def _build_metadata_cache(self):
         self.metadata_cache.clear()
-        self.metadata_file.seek(0)
-        while True:
-            try:
-                metadata = self._read_metadata()
-                self.metadata_cache.add(metadata)
-            except EOFError:
-                break
+        index_entries = self._db.read_full_index()
+        for metadata, file_span in index_entries.items():
+            self._cache_metadata(metadata, file_span)
 
-    def _cache_metadata(self, metadata: CVMetadata):
-        self.metadata_cache.add(metadata)
+    def _cache_metadata(self, metadata: CVMetadata, file_span: FileSpan):
+        self.metadata_cache.add(metadata, file_span)
