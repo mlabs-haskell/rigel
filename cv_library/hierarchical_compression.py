@@ -142,31 +142,43 @@ class HierarchicalLinear(nn.Module):
         return outputs
 
 def load_model(
-    checkpoint_file: str,
+    checkpoint_path: Path,
     network_type: Literal["attention", "linear"],
-    reduction_factor: int | None = None
+    reduction_factor_expected: int | None = None, # if present, will assert that this matches the saved model
 ) -> tuple[
     HierarchicalAttention | HierarchicalLinear,
     nn.Module,
     torch.optim.Optimizer,
     list[float]
 ]:
-    # Check if checkpoint already exists
-    epoch_losses = []
-    model_state_dict = None
-    optimizer_state_dict = None
-    checkpoint_path = Path(checkpoint_file)
-    if checkpoint_path.is_file():
-        checkpoint = torch.load(checkpoint_path)
-        epoch_losses = checkpoint['losses']
-        model_state_dict = checkpoint['model_state_dict']
-        optimizer_state_dict = checkpoint['optimizer_state_dict']
-        reduction_factor = checkpoint['reduction_factor']
+    checkpoint = torch.load(checkpoint_path)
+    epoch_losses = checkpoint['losses']
+    model_state_dict = checkpoint['model_state_dict']
+    optimizer_state_dict = checkpoint['optimizer_state_dict']
+    reduction_factor = checkpoint['reduction_factor']
+    if reduction_factor_expected is not None:
+        assert reduction_factor_expected == reduction_factor, f"{reduction_factor_expected} != {reduction_factor}"
 
+    network, loss_fn, optimizer = construct_model(network_type, reduction_factor)
+
+    network.load_state_dict(model_state_dict)
+    optimizer.load_state_dict(optimizer_state_dict)
+
+    return network, loss_fn, optimizer, epoch_losses
+
+def construct_model(
+    network_type: Literal["attention", "linear"],
+    reduction_factor: int
+) -> tuple[
+    HierarchicalAttention | HierarchicalLinear,
+    nn.Module,
+    torch.optim.Optimizer
+]:
     # Set up the network and optimizer
-    kwargs = {'standard_cv_size': [1024, 4096]}
-    if reduction_factor is not None:
-        kwargs['reduction'] = reduction_factor
+    kwargs = {
+        'standard_cv_size': [1024, 4096],
+        'reduction': reduction_factor
+    }
     match network_type:
         case "attention":
             network = HierarchicalAttention(**kwargs)
@@ -180,13 +192,8 @@ def load_model(
             )
     optimizer = Adam(network.parameters())
 
-    # Load state dicts if available
-    if model_state_dict is not None:
-        network.load_state_dict(model_state_dict)
-    if optimizer_state_dict is not None:
-        optimizer.load_state_dict(optimizer_state_dict)
+    return network, loss_fn, optimizer
 
-    return network, loss_fn, optimizer, epoch_losses
 
 def run_batch(
     X: torch.Tensor,
@@ -223,12 +230,21 @@ def train_compression_network(
     network_type: Literal["attention", "linear"],
     loss_batch_size: int = 100,
     reduction_factor: int | None = None
-) -> HierarchicalAttention:
-    network, loss_fn, optimizer, epoch_losses = load_model(
-        checkpoint_file,
-        network_type,
-        reduction_factor
-    )
+) -> HierarchicalAttention | HierarchicalLinear:
+    checkpoint_path = Path(checkpoint_file)
+    if checkpoint_path.is_file():
+        network, loss_fn, optimizer, epoch_losses = load_model(
+            checkpoint_path,
+            network_type,
+        )
+    else:
+        assert reduction_factor is not None
+        network, loss_fn, optimizer = construct_model(
+            network_type,
+            reduction_factor,
+        )
+        epoch_losses = []
+
 
     # Iterate through the epochs
     start_epoch = len(epoch_losses)
@@ -254,7 +270,7 @@ def train_compression_network(
         with torch.no_grad():
             batch_pbar = tqdm.tqdm(val_dataset, leave=False, desc="Validating")
             network.eval()
-            total_loss = 0.0
+            total_loss = torch.tensor(0.0)
             total_comparisons = 0
             for X, y in batch_pbar:
                 # Evaluate the batch
