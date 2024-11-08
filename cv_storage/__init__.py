@@ -89,8 +89,8 @@ class ContextVectorDB:
 
     def _build_metadata_cache(self):
         self.metadata_cache.clear()
-        index_entries = self._db.read_full_index()
-        for metadata, file_span in index_entries.items():
+        index_entries = self._db.read_all_index_entries()
+        for metadata, file_span in index_entries:
             self._cache_metadata(metadata, file_span)
 
     def _cache_metadata(self, metadata: CVMetadata, file_span: FileSpan):
