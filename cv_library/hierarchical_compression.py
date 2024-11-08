@@ -151,7 +151,7 @@ def load_model(
     torch.optim.Optimizer,
     list[float]
 ]:
-    checkpoint = torch.load(checkpoint_path)
+    checkpoint = torch.load(checkpoint_path, weights_only=True)
     epoch_losses = checkpoint['losses']
     model_state_dict = checkpoint['model_state_dict']
     optimizer_state_dict = checkpoint['optimizer_state_dict']
