@@ -49,12 +49,3 @@ def test_basic_read_write():
             meta = db.get_metadata(res.idx)
             assert meta == expected_meta, (meta, expected_meta, res)
             assert np.allclose(res.cv, expected_cv), res
-
-
-def main():
-    test_basic_read_write()
-    print("All tests passed!")
-
-
-if __name__ == "__main__":
-    main()

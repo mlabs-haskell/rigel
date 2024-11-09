@@ -37,6 +37,4 @@ query_generator article k:
 	python3 -m query_generator $WIKIPEDIA_LINKS_INDEX $WIKIPEDIA_LINKS_DATA "{{article}}" "{{k}}"
 
 tests:
-	python3 -m cv_storage.tests
-	python3 -m wikipedia_parser.tests
-	python3 -m cv_hier_storage.tests
+	python3 -m pytest
