@@ -21,9 +21,6 @@ class IndexedBinaryDB:
         """
         metadata_cls:
             Must support cls.read(reader: BinaryReader) and self.write(writer: BinaryWriter)
-            Must be hashable.
-            Dataclass, dict won't work, use NamedTuple instead.
-            Mutable types like list, set, etc won't work either.
         obj_cls:
             Must support cls.read(reader: BinaryReader) and self.write(writer: BinaryWriter)
         """
@@ -81,7 +78,7 @@ class IndexedBinaryDB:
 
     def read_all_index_entries(self) -> list[tuple[Any, FileSpan]]:
         """
-        Returns dict[Metadata, FileSpan].
+        Returns list[tuple[Metadata, FileSpan]].
         """
         self._index_file.seek(0)
         res: list[tuple[Any, FileSpan]] = []
