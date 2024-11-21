@@ -233,6 +233,7 @@ class Attention(nn.Module):
             init_method=lambda x: x
         )
 
+        self.inject_length = 0
         self.cache_k = torch.zeros(
             (
                 args.max_batch_size,
@@ -256,6 +257,7 @@ class Attention(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
+        inject_vector: Optional[torch.Tensor] = None
     ):
         """
         Forward pass of the attention module.
@@ -270,21 +272,35 @@ class Attention(nn.Module):
             torch.Tensor: Output tensor after attention.
 
         """
+
+        # Sanity check
+        assert inject_vector is not None or start_pos == 0
+
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
 
         xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
-        xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
-        xv = xv.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
+        xk = xk.view(bsz, -1, self.n_local_kv_heads, self.head_dim)
+        xv = xv.view(bsz, -1, self.n_local_kv_heads, self.head_dim)
 
+        # TODO
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
         self.cache_k = self.cache_k.to(xq)
         self.cache_v = self.cache_v.to(xq)
 
+        # Inject the context vector into the k v cache
+        if inject_vector is not None:
+            _, k_len, *_ = inject_vector.shape
+            self.inject_length = k_len
+
+            ik, iv = self.wk(inject_vector), self.wv(inject_vector)
+            self.cache_k[:bsz, :k_len] = ik
+            self.cache_v[:bsz, :k_len] = iv
+
+        start_pos += self.inject_length
         self.cache_k[:bsz, start_pos : start_pos + seqlen] = xk
         self.cache_v[:bsz, start_pos : start_pos + seqlen] = xv
-
         keys = self.cache_k[:bsz, : start_pos + seqlen]
         values = self.cache_v[:bsz, : start_pos + seqlen]
 
@@ -293,11 +309,12 @@ class Attention(nn.Module):
         values = repeat_kv(values, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
 
         xq = xq.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)
-        keys = keys.transpose(1, 2)
-        values = values.transpose(1, 2)
-        scores = torch.matmul(xq, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
+        keys = keys.transpose(1, 2) # (bs, n_local_kv_heads, k_len, head_dim)
+        values = values.transpose(1, 2) # (bs, n_local_kv_heads, k_len, head_dim)
+        keys = keys.transpose(2, 3) # (bs, n_local_kv_heads, head_dim, k_len)
+        scores = torch.matmul(xq, keys) / math.sqrt(self.head_dim) # (bs, n_local_kv_heads, seqlen, k_len)
         if mask is not None:
-            scores = scores + mask  # (bs, n_local_heads, seqlen, cache_len + seqlen)
+            scores = scores + mask  # (bs, n_local_heads, seqlen, k_len)
         scores = F.softmax(scores.float(), dim=-1).type_as(xq)
         output = torch.matmul(scores, values)  # (bs, n_local_heads, seqlen, head_dim)
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
@@ -389,6 +406,7 @@ class TransformerBlock(nn.Module):
         start_pos: int,
         freqs_cis: torch.Tensor,
         mask: Optional[torch.Tensor],
+        inject_vector: Optional[torch.Tensor] = None
     ):
         """
         Perform a forward pass through the TransformerBlock.
@@ -404,7 +422,7 @@ class TransformerBlock(nn.Module):
 
         """
         h = x + self.attention.forward(
-            self.attention_norm(x), start_pos, freqs_cis, mask
+            self.attention_norm(x), start_pos, freqs_cis, mask, inject_vector
         )
         out = h + self.feed_forward.forward(self.ffn_norm(h))
         return out
@@ -454,7 +472,13 @@ class Transformer(nn.Module):
         )
 
     @torch.inference_mode()
-    def forward(self, tokens: torch.Tensor, start_pos: int) -> torch.Tensor:
+    def forward(
+        self,
+        tokens: torch.Tensor,
+        start_pos: int,
+        inject_vector: torch.Tensor | None = None,
+        injection_location: int | None = None
+    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """
         Perform a forward pass through the Transformer model.
 
@@ -466,6 +490,12 @@ class Transformer(nn.Module):
             torch.Tensor: Output logits after applying the Transformer model.
 
         """
+
+        # Quick sanity check on injects
+        both_none = inject_vector is None and injection_location is None
+        neither_none = inject_vector is not None and injection_location is not None
+        assert both_none or neither_none
+
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
         self.freqs_cis = self.freqs_cis.to(h.device)
@@ -478,7 +508,15 @@ class Transformer(nn.Module):
             )
             mask = torch.triu(mask, diagonal=start_pos + 1).type_as(h)
 
+        intermediate_tensors = []
         for i, layer in enumerate(self.layers):
-            h = layer(h, start_pos, freqs_cis, mask)
-            if i == (self.n_layers // 2) - 1:
-               return h
+            intermediate_tensors.append(h)
+
+            if i == injection_location:
+                h = layer(h, start_pos, freqs_cis, mask, inject_vector)
+            else:
+                h = layer(h, start_pos, freqs_cis, mask)
+
+        h = self.norm(h)
+        output = self.output(h).float()
+        return output, intermediate_tensors
