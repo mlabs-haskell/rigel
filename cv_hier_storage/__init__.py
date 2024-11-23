@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, Callable, NamedTuple
 import heapq
 
-import numpy as np
 import torch
 
 from indexed_binary_db import FileSpan, IndexedBinaryDB
@@ -43,20 +42,20 @@ class CVMetadata(NamedTuple):
 
 
 class CV(NamedTuple):
-    cv: np.ndarray
+    cv: torch.Tensor
 
     def write(self, writer: BinaryWriter):
-        writer.write_ndarray(self.cv)
+        writer.write_tensor(self.cv)
 
     @classmethod
     def read(cls, reader: BinaryReader):
-        return CV(reader.read_ndarray())
+        return CV(reader.read_tensor())
 
 
 class SearchResult(NamedTuple):
     idx: int
     score: float
-    cv: np.ndarray
+    cv: torch.Tensor
 
 
 def parse_db_index(index: list[tuple[Any, FileSpan]]) -> list[FileSpan]:
@@ -106,7 +105,7 @@ class ContextVectorHierDB:
     def insert(
         self,
         metadata: CVMetadata,
-        vecs: list[np.ndarray],
+        vecs: list[torch.Tensor],
     ):
         """
         vecs:
@@ -124,7 +123,7 @@ class ContextVectorHierDB:
     def _search_level(
         self,
         level_idx: int,
-        query: np.ndarray,
+        query: torch.Tensor,
         previous_results: list[SearchResult] | None,
         narrow_factor: int,
     ) -> list[SearchResult]:
@@ -146,7 +145,7 @@ class ContextVectorHierDB:
 
     def search(
         self,
-        query: list[np.ndarray],
+        query: list[torch.Tensor],
         narrow_factor: int,
         max_level: int | None = None,
     ) -> list[SearchResult]:
@@ -179,18 +178,18 @@ class ContextVectorHierDB:
 
     # Internals
 
-    def _read_level(self, level_idx: int) -> list[np.ndarray]:
+    def _read_level(self, level_idx: int) -> list[torch.Tensor]:
         level = self.levels[level_idx]
         return [cv.cv for cv in level.db.read_all()]
 
-    def _read_level_vec(self, level_idx: int, idx: int) -> np.ndarray:
+    def _read_level_vec(self, level_idx: int, idx: int) -> torch.Tensor:
         """Read the vector at index idx from the level"""
         level = self.levels[level_idx]
         index = level.index[idx]
         cv: CV = level.db.read(index.start)
         return cv.cv
 
-    def _check_vec_sizes(self, vecs: list[np.ndarray]):
+    def _check_vec_sizes(self, vecs: list[torch.Tensor]):
         """Ensure the shape of a vector at each level is [seq_len, level.vec_size]"""
         assert len(vecs) == len(self.levels), f"{len(vecs)} != {len(self.levels)}"
         for vec, level in zip(vecs, self.levels):
@@ -211,17 +210,15 @@ def check_config_file(path: Path, config: DBConfig):
 
 
 def get_top_k_similar(
-    query: np.ndarray,
-    haystack: list[tuple[int, np.ndarray]],  # list of (idx, cv)
+    query: torch.Tensor,
+    haystack: list[tuple[int, torch.Tensor]],  # list of (idx, cv)
     similarity_fn: SimilarityFn,
     k: int,
 ) -> list[SearchResult]:
-    query_tensor = torch.tensor(query)
-
     # Heap of (score, idx)
     heap: list[tuple[float, SearchResult]] = []
 
-    vecs_by_len: dict[int, list[tuple[int, np.ndarray]]] = {}
+    vecs_by_len: dict[int, list[tuple[int, torch.Tensor]]] = {}
     for idx, v in haystack:
         seq_len = v.shape[0]
         if seq_len not in vecs_by_len:
@@ -229,9 +226,8 @@ def get_top_k_similar(
         vecs_by_len[seq_len].append((idx, v))
 
     for seq_len, vecs_of_len in vecs_by_len.items():
-        batch = np.stack([v for _, v in vecs_of_len])
-        batch_tensor = torch.tensor(batch)
-        scores = similarity_fn(query_tensor, batch_tensor)
+        batch = torch.stack([v for _, v in vecs_of_len])
+        scores = similarity_fn(query, batch)
         for (idx, cv), score in zip(vecs_of_len, scores):
             score_float = float(score)
             heapq.heappush(heap, (-score_float, SearchResult(idx, score_float, cv)))

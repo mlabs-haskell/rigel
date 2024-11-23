@@ -1,4 +1,4 @@
-import numpy as np
+import torch
 
 from typing import NamedTuple
 
@@ -22,11 +22,11 @@ class CVMetadata(NamedTuple):
 
 
 class CV(NamedTuple):
-    cv: np.ndarray
+    cv: torch.Tensor
 
     def write(self, writer: BinaryWriter):
-        writer.write_ndarray(self.cv)
+        writer.write_tensor(self.cv)
 
     @classmethod
     def read(cls, reader: BinaryReader):
-        return CV(reader.read_ndarray())
+        return CV(reader.read_tensor())

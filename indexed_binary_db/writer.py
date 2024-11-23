@@ -1,6 +1,6 @@
 from typing import BinaryIO
 import struct
-import numpy as np
+import torch
 
 
 class BinaryWriter:
@@ -23,7 +23,8 @@ class BinaryWriter:
         b = s.encode()
         self.write_bytes(b)
 
-    def write_ndarray(self, array: np.ndarray):
+    def write_tensor(self, tensor: torch.Tensor):
+        array = tensor.numpy()
         self.write_str(str(array.dtype))
         self.write_int64s(array.shape)
         self.write_bytes(array.tobytes())

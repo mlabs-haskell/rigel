@@ -1,11 +1,10 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
 from cv_library.loss_functions import sequence_similarity
-
-import numpy as np
-
 from cv_hier_storage import CVMetadata, ContextVectorHierDB, DBConfig
 
+import torch
 
 def test_basic_read_write():
     with TemporaryDirectory() as temp_dir:
@@ -15,7 +14,7 @@ def test_basic_read_write():
 
         db = ContextVectorHierDB(Path(temp_dir), config, sequence_similarity)
 
-        arr = lambda xs: np.array([xs], dtype=np.float32)
+        arr = lambda xs: torch.tensor([xs], dtype=torch.float32)
 
         vecs = [
             [arr([1, 3]), arr([1, 2, 3, 4])],
@@ -48,4 +47,4 @@ def test_basic_read_write():
         for res, (expected_meta, expected_cv) in zip(results, expected):
             meta = db.get_metadata(res.idx)
             assert meta == expected_meta, (meta, expected_meta, res)
-            assert np.allclose(res.cv, expected_cv), res
+            assert torch.allclose(res.cv, expected_cv), res
