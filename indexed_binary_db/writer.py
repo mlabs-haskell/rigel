@@ -24,7 +24,7 @@ class BinaryWriter:
         self.write_bytes(b)
 
     def write_tensor(self, tensor: torch.Tensor):
-        array = tensor.numpy()
+        array = tensor.cpu().numpy()
         self.write_str(str(array.dtype))
         self.write_int64s(array.shape)
         self.write_bytes(array.tobytes())
