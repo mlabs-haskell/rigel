@@ -477,7 +477,7 @@ class Transformer(nn.Module):
         tokens: torch.Tensor,
         start_pos: int,
         inject_vector: torch.Tensor | None = None,
-        injection_location: int | None = None
+        inject_location: int | None = None
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """
         Perform a forward pass through the Transformer model.
@@ -492,8 +492,8 @@ class Transformer(nn.Module):
         """
 
         # Quick sanity check on injects
-        both_none = inject_vector is None and injection_location is None
-        neither_none = inject_vector is not None and injection_location is not None
+        both_none = inject_vector is None and inject_location is None
+        neither_none = inject_vector is not None and inject_location is not None
         assert both_none or neither_none
 
         _bsz, seqlen = tokens.shape
@@ -512,7 +512,7 @@ class Transformer(nn.Module):
         for i, layer in enumerate(self.layers):
             intermediate_tensors.append(h)
 
-            if i == injection_location:
+            if i == inject_location:
                 h = layer(h, start_pos, freqs_cis, mask, inject_vector)
             else:
                 h = layer(h, start_pos, freqs_cis, mask)
