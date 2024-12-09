@@ -119,6 +119,7 @@ class ContextVectorHierDB:
 
         self._metadata_db.write(None, metadata)
         self._metadata.append(metadata)
+        self.root_haystack.append((len(self.root_haystack), vecs[0]))
         for vec, level in zip(vecs, self.levels):
             level.index.append(level.db.write(None, CV(vec)))
 
