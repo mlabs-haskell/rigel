@@ -130,10 +130,9 @@ def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
 
 
 def apply_rotary_emb(
-    xq: torch.Tensor,
-    xk: torch.Tensor,
+    input: torch.Tensor,
     freqs_cis: torch.Tensor,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> torch.Tensor:
     """
     Apply rotary embeddings to input tensors using the given frequency tensor.
 
@@ -153,12 +152,10 @@ def apply_rotary_emb(
 
 
     """
-    xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2))
-    xk_ = torch.view_as_complex(xk.float().reshape(*xk.shape[:-1], -1, 2))
-    freqs_cis = reshape_for_broadcast(freqs_cis, xq_)
-    xq_out = torch.view_as_real(xq_ * freqs_cis).flatten(3)
-    xk_out = torch.view_as_real(xk_ * freqs_cis).flatten(3)
-    return xq_out.type_as(xq), xk_out.type_as(xk)
+    input_ = torch.view_as_complex(input.float().reshape(*input.shape[:-1], -1, 2))
+    freqs_cis = reshape_for_broadcast(freqs_cis, input_)
+    output = torch.view_as_real(input_ * freqs_cis).flatten(3)
+    return output.type_as(input)
 
 
 def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
@@ -274,7 +271,7 @@ class Attention(nn.Module):
         """
 
         # Sanity check
-        assert inject_vector is not None or start_pos == 0
+        assert inject_vector is None or start_pos == 0
 
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
@@ -283,18 +280,25 @@ class Attention(nn.Module):
         xk = xk.view(bsz, -1, self.n_local_kv_heads, self.head_dim)
         xv = xv.view(bsz, -1, self.n_local_kv_heads, self.head_dim)
 
-        # TODO
-        xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
+        xq = apply_rotary_emb(xq, freqs_cis)
+        xk = apply_rotary_emb(xk, freqs_cis)
 
         self.cache_k = self.cache_k.to(xq)
         self.cache_v = self.cache_v.to(xq)
 
         # Inject the context vector into the k v cache
+        base = 0
         if inject_vector is not None:
             _, k_len, *_ = inject_vector.shape
             self.inject_length = k_len
-
             ik, iv = self.wk(inject_vector), self.wv(inject_vector)
+
+            ik = ik.view(bsz, -1, self.n_local_kv_heads, self.head_dim)
+            iv = iv.view(bsz, -1, self.n_local_kv_heads, self.head_dim)
+
+            xq = apply_rotary_emb(xq, freqs_cis)
+            xk = apply_rotary_emb(xk, freqs_cis)
+
             self.cache_k[:bsz, :k_len] = ik
             self.cache_v[:bsz, :k_len] = iv
 
@@ -503,20 +507,27 @@ class Transformer(nn.Module):
 
         mask = None
         if seqlen > 1:
-            mask = torch.full(
-                (1, 1, seqlen, seqlen), float("-inf"), device=tokens.device
-            )
-            mask = torch.triu(mask, diagonal=start_pos + 1).type_as(h)
+            mask = generate_mask(seqlen, 0, start_pos, h)
 
         intermediate_tensors = []
         for i, layer in enumerate(self.layers):
             intermediate_tensors.append(h)
 
             if i == inject_location:
-                h = layer(h, start_pos, freqs_cis, mask, inject_vector)
+                temp_mask = mask
+                if temp_mask is not None:
+                    temp_mask = generate_mask(seqlen, inject_vector.shape[1], start_pos, h)
+                h = layer(h, start_pos, freqs_cis, temp_mask, inject_vector)
             else:
                 h = layer(h, start_pos, freqs_cis, mask)
 
         h = self.norm(h)
         output = self.output(h).float()
         return output, intermediate_tensors
+
+def generate_mask(seqlen: int, inject_len: int, start_pos: int, h: torch.Tensor) -> torch.Tensor:
+    mask = torch.full(
+        (1, 1, seqlen, seqlen + inject_len), float("-inf"), device=h.device
+    )
+    mask = torch.triu(mask, diagonal=start_pos + inject_len + 1).type_as(h)
+    return mask
