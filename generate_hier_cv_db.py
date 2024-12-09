@@ -22,7 +22,6 @@ def timer(description="Execution time"):
     print(f"{description}: {elapsed:.4f} seconds")
 
 
-# DEVICE = "cpu"
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 DTYPE = torch.float32
 torch.set_default_device(DEVICE)
@@ -50,8 +49,8 @@ def main(
     for x in level_sizes:
         assert x > 0
 
-    print("Loaded.")
     compressor = Compressor(compressor_chkpt)
+    print("Loaded compressor")
 
     cv_db_path = Path(cv_db_dir)
     hier_db_path = Path(hier_db_dir)
@@ -92,7 +91,6 @@ def main(
     else:
         print("Unknown mode:", mode)
         print("Available options: generate, verify")
-
 
 def to_hierarchical(cv: torch.Tensor, compressor: Compressor) -> list[torch.Tensor]:
     cv = cv.to(dtype=DTYPE).unsqueeze(dim=0)
@@ -138,8 +136,9 @@ def verify_db(
 
         closest_cvs = hier_db.search(hier_cvs, search_narrow_factor, max_level)
 
-        closest = closest_cvs[0]
-        assert torch.allclose(cv, closest.cv)
+        closest = closest_cvs[0].cv
+        closest = closest.to(cv)
+        assert torch.allclose(cv, closest)
 
 
 if __name__ == "__main__":

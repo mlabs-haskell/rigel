@@ -100,6 +100,8 @@ class ContextVectorHierDB:
                 )
             )
 
+        self.root_haystack = list(enumerate(self._read_level(0)))
+
     # Public API
 
     def insert(
@@ -128,14 +130,14 @@ class ContextVectorHierDB:
         narrow_factor: int,
     ) -> list[SearchResult]:
         if previous_results is None:
-            haystack = list(enumerate(self._read_level(0)))
+            haystack = self.root_haystack
         else:
             haystack = [
                 (v.idx, self._read_level_vec(level_idx, v.idx))
                 for v in previous_results
             ]
         result_size = len(haystack) // narrow_factor
-        assert result_size > 0
+        result_size = max(result_size, 1)
         return get_top_k_similar(
             query,
             haystack,
