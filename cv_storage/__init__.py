@@ -1,5 +1,5 @@
 from pathlib import Path
-import numpy as np
+import torch
 
 from indexed_binary_db import FileSpan, IndexedBinaryDB
 from .models import CV, CVMetadata
@@ -55,7 +55,7 @@ class ContextVectorDB:
 
     # Public interface
 
-    def get(self, article_title: str, section_name: str) -> np.ndarray | None:
+    def get(self, article_title: str, section_name: str) -> torch.Tensor | None:
         metadata = self.metadata_cache.get(article_title, section_name)
         if metadata is None:
             return None
@@ -74,14 +74,14 @@ class ContextVectorDB:
     def get_section_names(self, article_title: str) -> list[str]:
         return self.metadata_cache.get_section_names(article_title)
 
-    def insert(self, article_title: str, section_name: str, cv: np.ndarray):
+    def insert(self, article_title: str, section_name: str, cv: torch.Tensor):
         metadata = CVMetadata(article_title, section_name)
         file_span = self._db.write(metadata, CV(cv))
         self._cache_metadata(metadata, file_span)
 
     # Context vectors
 
-    def _read_context_vector(self, start: int):
+    def _read_context_vector(self, start: int) -> torch.Tensor:
         cv: CV = self._db.read(start)
         return cv.cv
 

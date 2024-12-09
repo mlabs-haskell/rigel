@@ -1,7 +1,6 @@
 import time
 from typing import Sequence
 
-import numpy as np
 from cv_library.compressor import Compressor
 from cv_library.loss_functions import sequence_similarity
 from cv_storage import ContextVectorDB
@@ -95,15 +94,12 @@ def main(
         print("Available options: generate, verify")
 
 
-def to_hierarchical(cv: np.ndarray, compressor: Compressor) -> list[np.ndarray]:
-    cv_tensor = torch.tensor(cv, dtype=DTYPE).unsqueeze(dim=0)
+def to_hierarchical(cv: torch.Tensor, compressor: Compressor) -> list[torch.Tensor]:
+    cv = cv.to(dtype=DTYPE).unsqueeze(dim=0)
 
-    hier_cv_tensors = [cv_tensor, *compressor.compress(cv_tensor)]
-    hier_cv_tensors.reverse()
-
-    hier_cvs = [
-        tensor.squeeze(dim=0).cpu().detach().numpy() for tensor in hier_cv_tensors
-    ]
+    hier_cvs = [cv, *compressor.compress(cv)]
+    hier_cvs.reverse()
+    hier_cvs = [tensor.squeeze(dim=0) for tensor in hier_cvs]
 
     return hier_cvs
 
@@ -143,7 +139,7 @@ def verify_db(
         closest_cvs = hier_db.search(hier_cvs, search_narrow_factor, max_level)
 
         closest = closest_cvs[0]
-        assert np.allclose(cv, closest.cv)
+        assert torch.allclose(cv, closest.cv)
 
 
 if __name__ == "__main__":

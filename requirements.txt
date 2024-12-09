@@ -3,7 +3,7 @@ matplotlib
 nltk
 numpy
 pymongo
+pytest
 scikit-learn
 torch
 tqdm
-pytest

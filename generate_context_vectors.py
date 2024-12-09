@@ -87,7 +87,7 @@ def main(
         # Insert context vectors into DB
         for section_name, context_vector in context_vectors:
             cv_db.insert(
-                article_title, section_name, context_vector.cpu().detach().numpy()
+                article_title, section_name, context_vector
             )
 
         elapsed = time.time() - start

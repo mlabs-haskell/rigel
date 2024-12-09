@@ -1,10 +1,10 @@
 import struct
 from typing import BinaryIO
+import torch
 
 import numpy as np
 
 from .buffer import Buffer
-
 
 class BinaryReader:
     def __init__(self, file: BinaryIO | Buffer):
@@ -24,11 +24,12 @@ class BinaryReader:
         b = self.read_bytes()
         return b.decode()
 
-    def read_ndarray(self) -> np.ndarray:
+    def read_tensor(self) -> torch.Tensor:
         dtype = self.read_str()
         shape = self.read_int64s()
         array_bytes = self.read_bytes()
-        return np.frombuffer(array_bytes, dtype=dtype).reshape(shape)
+        array = np.frombuffer(array_bytes, dtype=dtype).reshape(shape)
+        return torch.tensor(array)
 
     def read_bytes(self) -> bytes:
         len_bytes = self.read_int64()
