@@ -56,9 +56,14 @@ query_generator article k:
 tests:
 	python3 -m pytest
 
-train_compressor:
+train_compressor validation='True':
 	python3 -m scripts.train_compressor train \
 			--checkpoint_file ../step16/attention_model.pt \
 			--network_type attention \
 			--reduction_factor 4 \
-			--cvdb_folder ../step16/context-vectors/
+			--cvdb_folder ../step16/context-vectors/ \
+			--validation {{validation}}
+
+train_compressor_min_loss:
+	python3 -m scripts.train_compressor min_loss \
+			--checkpoint_file ../step16/attention_model.pt
