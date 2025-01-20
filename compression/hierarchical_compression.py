@@ -76,7 +76,7 @@ class HierarchicalAttention(nn.Module):
     def __init__(
         self,
         standard_cv_size: torch.Size = torch.Size([1024, 4096]),
-        reduction: int = 8
+        reduction: int = 4
     ):
         super().__init__()
 

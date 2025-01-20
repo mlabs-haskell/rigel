@@ -39,9 +39,9 @@ class ContextVectorDataLoader:
         # Determine batch selection function based on split type
         match split:
             case "train":
-                selection_function = lambda i: 0 <= i % 5 and i % 5 <= 2
+                selection_function = lambda i: i % 5 <= 2
             case "train_full":
-                selection_function = lambda i: 0 <= i % 5 and i % 5 <= 3
+                selection_function = lambda i: i % 5 <= 3
             case "val":
                 selection_function = lambda i: i % 5 == 3
             case "test":
