@@ -7,9 +7,9 @@ import heapq
 
 import torch
 
-from indexed_binary_db import FileSpan, IndexedBinaryDB
-from indexed_binary_db.reader import BinaryReader
-from indexed_binary_db.writer import BinaryWriter
+from .indexed_binary_db import FileSpan, IndexedBinaryDB
+from .indexed_binary_db.reader import BinaryReader
+from .indexed_binary_db.writer import BinaryWriter
 
 SimilarityFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 

@@ -1,7 +1,7 @@
 from pathlib import Path
 import torch
 
-from indexed_binary_db import FileSpan, IndexedBinaryDB
+from .indexed_binary_db import FileSpan, IndexedBinaryDB
 from .models import CV, CVMetadata
 
 
