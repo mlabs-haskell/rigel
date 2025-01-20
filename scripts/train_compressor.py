@@ -1,5 +1,5 @@
-from .context_vector_loader import ContextVectorDataLoader
-from .hierarchical_compression import train_compression_network
+from compression.context_vector_loader import ContextVectorDataLoader
+from compression.hierarchical_compression import train_compression_network
 
 import fire
 import matplotlib.pyplot as plt
