@@ -1,8 +1,8 @@
 import time
 from typing import Sequence
 
-from cv_library.compressor import Compressor
-from cv_library.loss_functions import sequence_similarity
+from compression.compressor import Compressor
+from compression.loss_functions import sequence_similarity
 from cv_storage import ContextVectorDB
 import cv_storage.cv_hier_storage as cvhs
 

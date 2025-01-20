@@ -1,7 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from cv_library.loss_functions import sequence_similarity
+from compression.loss_functions import sequence_similarity
 from cv_storage.cv_hier_storage import CVMetadata, ContextVectorHierDB, DBConfig
 
 import torch
