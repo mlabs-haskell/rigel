@@ -1,4 +1,4 @@
-from ..cv_storage import ContextVectorDB
+from cv_storage import ContextVectorDB
 
 import tempfile
 from pathlib import Path
