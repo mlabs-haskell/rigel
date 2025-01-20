@@ -35,7 +35,7 @@ def get_all_headings(db: ContextVectorDB) -> list[tuple[str, str]]:
             res.append((article_title, section_name))
     return res
 
-
+@torch.no_grad()
 def main(
     compressor_chkpt: str,
     cv_db_dir: str,

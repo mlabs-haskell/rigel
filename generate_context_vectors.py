@@ -35,6 +35,7 @@ def main(
     content_index_file: str,
     cv_db_folder: str,
     article_list_file: str,
+    transformer_position: int,
     max_seq_len: int = 128,
     max_gen_len: int = 64,
     max_batch_size: int = 4,
@@ -76,9 +77,10 @@ def main(
         for i in pbar:
             # Batch the tokenized texts
             batched_tokens = tokens[i : i + max_batch_size]
-            batch_context_vectors = generator.generate(
+            _, batch_context_vectors = generator.generate_context_vectors(
                 [toks for _, toks in batched_tokens], max_gen_len
             )
+            batch_context_vectors = batch_context_vectors[transformer_position]
 
             for j in range(len(batch_context_vectors)):
                 (section_name, _) = batched_tokens[j]

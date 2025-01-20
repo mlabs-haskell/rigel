@@ -27,15 +27,24 @@ def _tokenize(text: str) -> list[str]:
     # Tokenize the text, removing stop words and stemming all others
     stemmer = PorterStemmer()
     words = word_tokenize(text)
-    words = [w for w in words if w not in stopwords.words("english")]
-    words = [stemmer.stem(w) for w in words]
+    words = [
+        stemmer.stem(w)
+        for w in words
+        if w not in stopwords.words("english")
+    ]
 
     return words
 
 
-def get_tfidf(strings: Iterable[list[str]]) -> list[list[float]]:
+def get_tfidf(strings: Iterable[str], total: int | None = None) -> list[list[float]]:
+    # Tokenize the input strings
     tokens = map(lambda s: " ".join(_tokenize(s)), strings)
 
+    # Set up progress bar if we know the size of the library
+    if total is not None:
+        tokens = tqdm(tokens, leave=False, total=total)
+
+    # Perform tf-idf and turn into a list
     tfidf = TfidfVectorizer(max_df=0.9, min_df=0.05)
     vectors = tfidf.fit_transform(tokens)
     return vectors.toarray().tolist()
@@ -77,7 +86,7 @@ def get_all_tfidf(
     # Do TFIDF vectorization
     print("Finished collecting text, performing TFIDF vectorization...")
     article_keys = list(texts_map.keys())
-    tfidfs = get_tfidf(texts_map.values())
+    tfidfs = get_tfidf(texts_map.values(), len(texts_map))
 
     document_tfidfs = {}
     for (article_title, section_name), tfidf in zip(article_keys, tfidfs):
