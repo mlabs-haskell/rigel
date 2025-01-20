@@ -17,8 +17,7 @@ def train(
     tfidf_file: str = "tfidf.json",
     epochs: int = 100,
     reduction_factor: int | None = None,
-    device: str = DEVICE,
-    validation: bool = True
+    device: str = DEVICE
 ):
     """Function to train a hierarchical compression network. Saves model after
     each epoch in checkpoint_file. If checkpoint_file already exists, training
@@ -26,12 +25,8 @@ def train(
     with torch.device(device):
         torch.set_default_dtype(torch.float32)
 
-        if validation:
-            train_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'train', cvdb_folder)
-            val_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'val', cvdb_folder)
-        else:
-            train_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'train_full', cvdb_folder)
-            val_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'test', cvdb_folder)
+        train_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'train', cvdb_folder)
+        val_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'val', cvdb_folder)
 
         train_compression_network(
             train_loader,

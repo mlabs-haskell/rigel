@@ -12,7 +12,7 @@ class ContextVectorDataLoader:
         self,
         batch_size: int,
         tfidf_file: str,
-        split: Literal["train", "train_full", "val", "test"],
+        split: Literal["train", "val", "test"],
         cvdb_folder: str,
         random_seed: int = 0,
         skip_small_batches: bool = True
@@ -40,8 +40,6 @@ class ContextVectorDataLoader:
         match split:
             case "train":
                 selection_function = lambda i: i % 5 <= 2
-            case "train_full":
-                selection_function = lambda i: i % 5 <= 3
             case "val":
                 selection_function = lambda i: i % 5 == 3
             case "test":
@@ -68,7 +66,7 @@ class ContextVectorDataLoader:
                 if selection_function(counter):
                     batch = keys[i: i + batch_size]
                     if len(batch) == batch_size or not skip_small_batches:
-                        batches.append(keys[i: i + batch_size])
+                        batches.append(batch)
                 counter += 1
 
         cvdb_folder = Path(cvdb_folder)
@@ -91,7 +89,6 @@ class ContextVectorDataLoader:
         for _, article_title, section_name in batch:
             # Get the context vector
             context_vector = self.cv_db.get(article_title, section_name)
-            context_vector = torch.tensor(context_vector)
             Xs.append(context_vector)
         X = torch.stack(Xs).to(torch.float32)
 
