@@ -4,7 +4,7 @@ from typing import Sequence
 from cv_library.compressor import Compressor
 from cv_library.loss_functions import sequence_similarity
 from cv_storage import ContextVectorDB
-import cv_hier_storage as cvhs
+import cv_storage.cv_hier_storage as cvhs
 
 from fire import Fire
 from tqdm import tqdm
