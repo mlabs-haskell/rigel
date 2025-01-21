@@ -287,7 +287,6 @@ class Attention(nn.Module):
         self.cache_v = self.cache_v.to(xq)
 
         # Inject the context vector into the k v cache
-        base = 0
         if inject_vector is not None:
             _, k_len, *_ = inject_vector.shape
             self.inject_length = k_len
@@ -529,5 +528,6 @@ def generate_mask(seqlen: int, inject_len: int, start_pos: int, h: torch.Tensor)
     mask = torch.full(
         (1, 1, seqlen, seqlen + inject_len), float("-inf"), device=h.device
     )
-    mask = torch.triu(mask, diagonal=start_pos + inject_len + 1).type_as(h)
+    diagonal = start_pos + inject_len + 1
+    mask = torch.triu(mask, diagonal).type_as(h)
     return mask

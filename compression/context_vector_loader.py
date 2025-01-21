@@ -12,7 +12,7 @@ class ContextVectorDataLoader:
         self,
         batch_size: int,
         tfidf_file: str,
-        split: Literal["train", "val", "test"],
+        split: Literal["train", "train_full", "val", "test"],
         cvdb_folder: str,
         random_seed: int = 0,
         skip_small_batches: bool = True
@@ -40,6 +40,8 @@ class ContextVectorDataLoader:
         match split:
             case "train":
                 selection_function = lambda i: i % 5 <= 2
+            case "train_full":
+                selection_function = lambda i: i % 5 <= 3
             case "val":
                 selection_function = lambda i: i % 5 == 3
             case "test":
