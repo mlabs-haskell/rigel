@@ -179,6 +179,19 @@ class ContextVectorHierDB:
     def get_metadata(self, idx: int) -> CVMetadata:
         return self._metadata[idx]
 
+    def query_metadata(
+        self,
+        article_title: str | None = None,
+        section_name: str | None = None
+    ) -> list[tuple[int, CVMetadata]]:
+        return [
+            (i, md) for i, md in enumerate(self._metadata)
+            if (
+                (article_title is None or md.article_title == article_title) and
+                (section_name is None or md.section_name == section_name)
+            )
+        ]
+
     # Internals
 
     def _read_level(self, level_idx: int) -> list[torch.Tensor]:

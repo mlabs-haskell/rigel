@@ -162,8 +162,7 @@ class Llama:
         for k, t in enumerate(prompt_tokens):
             tokens[k, : len(t)] = torch.tensor(t, dtype=torch.long)
 
-        logits, context_vectors = self.model.forward(tokens, 0)
-        return logits, context_vectors
+        return self.model.forward(tokens, 0)
 
     @torch.inference_mode()
     def generate(
@@ -285,11 +284,12 @@ class Llama:
     def tokenize(
         self,
         max_seq_len,
-        prompts: List[Tuple[str, str]]
+        prompts: List[Tuple[str, str]],
+        beginning_of_sentence_token: bool = True
     ) -> List[Tuple[str, List[int]]]:
         output = []
         for section, text in prompts:
-            tokens = self.tokenizer.encode(text, bos=True, eos=False)
+            tokens = self.tokenizer.encode(text, beginning_of_sentence_token, eos=False)
             output.append((section, tokens[:max_seq_len]))
 
         return output

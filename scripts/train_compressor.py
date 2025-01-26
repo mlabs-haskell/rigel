@@ -52,6 +52,10 @@ def min_loss(checkpoint_file: str = "model.pt"):
         epoch_losses = checkpoint['losses']
 
         if len(epoch_losses) > 0:
+            print("Losses by epoch:")
+            for i, loss in enumerate(epoch_losses):
+                print(f"{i}: {loss}")
+
             min_idx, min_loss = min(enumerate(epoch_losses), key=lambda t: t[1])
             print(f"Min loss of {min_loss} found after {min_idx + 1} epochs")
 

@@ -35,7 +35,6 @@ def _tokenize(text: str) -> list[str]:
 
     return words
 
-
 def get_tfidf(strings: Iterable[str], total: int | None = None) -> list[list[float]]:
     # Tokenize the input strings
     tokens = map(lambda s: " ".join(_tokenize(s)), strings)
@@ -49,13 +48,15 @@ def get_tfidf(strings: Iterable[str], total: int | None = None) -> list[list[flo
     vectors = tfidf.fit_transform(tokens)
     return vectors.toarray().tolist()
 
-
 def get_all_tfidf(
     contents_index_file: str,
     contents_data_file: str,
     out_file: str,
     cvdb_folder: str,
 ):
+    """Generate TFIDF vectors for all documents in the context vector db"""
+
+    # Open the context vector db
     article_contents_db = IndexedFlatFile(
         contents_index_file,
         contents_data_file,
@@ -63,6 +64,7 @@ def get_all_tfidf(
     cvdb_folder = Path(cvdb_folder)
     cv_db = ContextVectorDB(cvdb_folder)
 
+    # Get the text for each article/section
     texts_map = {}
     for article_title in tqdm(cv_db.get_article_titles(), leave=False):
         article_str = article_contents_db.get(article_title)
@@ -79,7 +81,7 @@ def get_all_tfidf(
             text = extract_section_text(section_names, article)
             if text is None:
                 raise ValueError(
-                    f"Article {article_title} down not have section {section_name}"
+                    f"Article {article_title} does not have section {section_name}"
                 )
             texts_map[(article_title, section_name)] = text
 
@@ -88,6 +90,7 @@ def get_all_tfidf(
     article_keys = list(texts_map.keys())
     tfidfs = get_tfidf(texts_map.values(), len(texts_map))
 
+    # Pair the section with the tfidf score
     document_tfidfs = {}
     for (article_title, section_name), tfidf in zip(article_keys, tfidfs):
         seq_len = cv_db.get(article_title, section_name).shape[0]
@@ -101,7 +104,6 @@ def get_all_tfidf(
     # Write to designated file
     with open(out_file, "w") as file:
         json.dump(document_tfidfs, file, indent=4)
-
 
 if __name__ == "__main__":
     fire.Fire(get_all_tfidf)

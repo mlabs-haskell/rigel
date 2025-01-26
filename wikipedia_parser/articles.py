@@ -10,7 +10,10 @@ def generate_texts(article) -> Iterator[tuple[str, str]]:
             subsection_name = article["section_name"]
             section_name = f"{section_name}\\{subsection_name}"
 
-        yield (section_name, article["text"])
+        # Only yield an article if it has content
+        text = article["text"]
+        if len(text) > 0:
+            yield (section_name, text)
 
         for child in article["children"]:
             yield from get_text_by_section(section_name, child)

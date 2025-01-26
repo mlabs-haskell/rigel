@@ -93,8 +93,8 @@ def main(
         print("Available options: generate, verify")
 
 def to_hierarchical(cv: torch.Tensor, compressor: Compressor) -> list[torch.Tensor]:
+    # Run cv through compressor
     cv = cv.to(dtype=DTYPE).unsqueeze(dim=0)
-
     hier_cvs = [cv, *compressor.compress(cv)]
     hier_cvs.reverse()
     hier_cvs = [tensor.squeeze(dim=0) for tensor in hier_cvs]
