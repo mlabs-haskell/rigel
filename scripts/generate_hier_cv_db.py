@@ -13,7 +13,6 @@ import torch
 from contextlib import contextmanager
 from pathlib import Path
 
-
 @contextmanager
 def timer(description="Execution time"):
     start = time.perf_counter()
@@ -21,12 +20,10 @@ def timer(description="Execution time"):
     elapsed = time.perf_counter() - start
     print(f"{description}: {elapsed:.4f} seconds")
 
-
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 DTYPE = torch.float32
 torch.set_default_device(DEVICE)
 torch.set_default_dtype(DTYPE)
-
 
 def get_all_headings(db: ContextVectorDB) -> list[tuple[str, str]]:
     res = []
@@ -101,7 +98,6 @@ def to_hierarchical(cv: torch.Tensor, compressor: Compressor) -> list[torch.Tens
 
     return hier_cvs
 
-
 def generate_db(
     cv_db: ContextVectorDB,
     headings: list[tuple[str, str]],
@@ -115,7 +111,6 @@ def generate_db(
 
         metadata = cvhs.CVMetadata(article_title, section_name)
         hier_db.insert(metadata, hier_cvs)
-
 
 def verify_db(
     cv_db: ContextVectorDB,
@@ -139,7 +134,6 @@ def verify_db(
         closest = closest_cvs[0].cv
         closest = closest.to(cv)
         assert torch.allclose(cv, closest)
-
 
 if __name__ == "__main__":
     Fire(main)

@@ -5,6 +5,7 @@ from typing import Iterator, Literal
 
 import torch
 
+from .loss_functions import sequence_similarity
 from cv_storage import ContextVectorDB
 
 class ContextVectorDataLoader:
@@ -95,18 +96,15 @@ class ContextVectorDataLoader:
         X = torch.stack(Xs).to(torch.float32)
 
         # Create y matrix containing similarity score between all data points
-        cos_sim = torch.nn.CosineSimilarity(dim=0)
         y = torch.ones(len(batch), len(batch))
         for i in range(len(batch)):
             # Get ith document
-            seq_len_i, article_title_i, section_name_i = batch[i]
-            tfidf_i = self.tfidfs[seq_len_i][article_title_i][section_name_i]
+            Xi = X[i]
 
             # Iterate through all future documents and calculate similarity score
             for j in range(i + 1, len(batch)):
-                seq_len_j, article_title_j, section_name_j = batch[j]
-                tfidf_j = self.tfidfs[seq_len_j][article_title_j][section_name_j]
-                score = cos_sim(tfidf_i, tfidf_j)
+                Xj = X[j]
+                score = sequence_similarity(Xi, Xj)
                 y[i, j] = y[j, i] = score
 
         return X, y

@@ -12,7 +12,7 @@ DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 def train(
     checkpoint_file: str,
     network_type: str,
-    batch_size: int = 150,
+    batch_size: int = 200,
     cvdb_folder: str = "context_vectors",
     tfidf_file: str = "tfidf.json",
     epochs: int = 100,
@@ -69,10 +69,13 @@ def min_loss(checkpoint_file: str = "model.pt"):
         print(f"Error: could not find file {checkpoint_file}")
         exit(1)
 
-def count_ys():
+def count_ys(
+    tfidf_file: str = "data/tfidf.json",
+    cv_dir: str = "data/context-vectors"
+):
     """Function to count up how many targets are 0 vs how many are not
     """
-    loader = ContextVectorDataLoader(150, "tfidf.json", 'train', "context_vectors")
+    loader = ContextVectorDataLoader(150, tfidf_file, 'train', cv_dir)
     zeros = 0
     others = 0
 

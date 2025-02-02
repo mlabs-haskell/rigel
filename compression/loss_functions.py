@@ -51,7 +51,7 @@ class CosineSimilarityLoss(nn.Module):
         x2 = x2.transpose(-1, -2)
         cos_sims = torch.matmul(x1, x2)
 
-        # Calculate the total loss and scale based on the distributaion of y
+        # Calculate the total loss and scale based on the distribution of y
         losses = (cos_sims - y) ** 2
         scales = torch.ones_like(y)
         scales[y != 0.0] = self.y_scale

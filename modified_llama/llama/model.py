@@ -286,22 +286,6 @@ class Attention(nn.Module):
         self.cache_k = self.cache_k.to(xq)
         self.cache_v = self.cache_v.to(xq)
 
-        # Inject the context vector into the k v cache
-        if inject_vector is not None:
-            _, k_len, *_ = inject_vector.shape
-            self.inject_length = k_len
-            ik, iv = self.wk(inject_vector), self.wv(inject_vector)
-
-            ik = ik.view(bsz, -1, self.n_local_kv_heads, self.head_dim)
-            iv = iv.view(bsz, -1, self.n_local_kv_heads, self.head_dim)
-
-            xq = apply_rotary_emb(xq, freqs_cis)
-            xk = apply_rotary_emb(xk, freqs_cis)
-
-            self.cache_k[:bsz, :k_len] = ik
-            self.cache_v[:bsz, :k_len] = iv
-
-        start_pos += self.inject_length
         self.cache_k[:bsz, start_pos : start_pos + seqlen] = xk
         self.cache_v[:bsz, start_pos : start_pos + seqlen] = xv
         keys = self.cache_k[:bsz, : start_pos + seqlen]
@@ -499,8 +483,12 @@ class Transformer(nn.Module):
         neither_none = inject_vector is not None and inject_location is not None
         assert both_none or neither_none
 
-        _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
+        _bsz, seqlen = tokens.shape
+        if inject_location == 0:
+            seqlen += inject_vector.shape[1]
+            h = torch.cat([inject_vector, h], dim=1)[:, :seqlen, :]
+
         self.freqs_cis = self.freqs_cis.to(h.device)
         freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
 
@@ -513,10 +501,7 @@ class Transformer(nn.Module):
             intermediate_tensors.append(h)
 
             if i == inject_location:
-                temp_mask = mask
-                if temp_mask is not None:
-                    temp_mask = generate_mask(seqlen, inject_vector.shape[1], start_pos, h)
-                h = layer(h, start_pos, freqs_cis, temp_mask, inject_vector)
+                h = layer(h, start_pos, freqs_cis, mask, inject_vector)
             else:
                 h = layer(h, start_pos, freqs_cis, mask)
 

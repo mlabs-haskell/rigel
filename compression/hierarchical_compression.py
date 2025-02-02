@@ -201,13 +201,14 @@ def run_batch(
     network: HierarchicalAttention | HierarchicalLinear,
     loss_batch_size: int,
     loss_fn: nn.Module,
-    factor: float
+    level_factor: float
 ) -> torch.Tensor:
     # Push the data through the network
     compressed_vectors = network.forward(X)
 
     # Calculate loss at each level of compression
     batch_loss = torch.tensor(0.0)
+    factor = 1.0
     for compressed_vector in compressed_vectors:
         # Get the vectors for loss calculation
         for cv1_idx in range(len(compressed_vector)):
@@ -219,6 +220,7 @@ def run_batch(
 
                 # Calculate the loss
                 batch_loss += factor * loss_fn(loss_X1, loss_X2, loss_y)
+        factor *= level_factor
 
     return batch_loss
 
