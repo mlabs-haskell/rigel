@@ -6,7 +6,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple, TypedDict
+from typing import Iterator, List, Literal, Optional, Tuple, TypedDict
 
 import torch
 import torch.nn.functional as F
@@ -130,8 +130,9 @@ class Llama:
     def generate_context_vectors(
         self,
         prompt_tokens: List[List[int]],
-        max_gen_len: int = None
-    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
+        max_gen_len: int = None,
+        retrieval_location: int | None = None
+    ) -> torch.Tensor:
         """
         Generate context vectors based on provided prompts using the language generation model.
 
@@ -162,7 +163,7 @@ class Llama:
         for k, t in enumerate(prompt_tokens):
             tokens[k, : len(t)] = torch.tensor(t, dtype=torch.long)
 
-        return self.model.forward(tokens, 0)
+        return self.model.forward(tokens, 0, retrieval_location=retrieval_location)
 
     @torch.inference_mode()
     def generate(
@@ -227,14 +228,14 @@ class Llama:
 
         for cur_pos in range(min_prompt_len, total_len):
             if prev_pos == 0:
-                logits, _ = self.model.forward(
+                logits = self.model.forward(
                     tokens[:, prev_pos:cur_pos],
                     prev_pos,
                     inject_vector,
                     inject_location
                 )
             else:
-                logits, _ = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
+                logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
 
             if temperature > 0:
                 probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
@@ -280,6 +281,85 @@ class Llama:
             out_tokens.append(toks)
             out_logprobs.append(probs)
         return (out_tokens, out_logprobs if logprobs else None)
+
+    @torch.inference_mode()
+    def generate_iterator(
+        self,
+        prompt_tokens: List[int],
+        inject_vector: torch.Tensor | None = None,
+        inject_location: int | None = None,
+        max_gen_len: int = None,
+        temperature: float = 0.6,
+        top_p: float = 0.9,
+    ) -> Iterator[int]:
+        """
+        Generate text sequences based on provided prompts using the language generation model.
+
+        Args:
+            prompt_tokens (List[int]): Tokenized prompt, whichis represented as a list of integers.
+            max_gen_len (int): Maximum length of the generated text sequence.
+            temperature (float, optional): Temperature value for controlling randomness in sampling. Defaults to 0.6.
+            top_p (float, optional): Top-p probability threshold for nucleus sampling. Defaults to 0.9.
+
+        Returns:
+            Iterator[int]: An iterator containing generated token sequences.
+
+        Note:
+            This method uses the provided prompts as a basis for generating text. It employs nucleus sampling to produce text with controlled randomness.
+            If logprobs is True, token log probabilities are computed for each generated token.
+
+        """
+        if max_gen_len is None:
+            max_gen_len = self.model.params.max_seq_len - 1
+        params = self.model.params
+        bsz = 1
+        assert bsz <= params.max_batch_size, (bsz, params.max_batch_size)
+
+        min_prompt_len = len(prompt_tokens)
+        max_prompt_len = len(prompt_tokens)
+        assert max_prompt_len <= params.max_seq_len
+        total_len = min(params.max_seq_len, max_gen_len + max_prompt_len)
+
+        pad_id = 0
+        tokens = torch.full((bsz, total_len), pad_id, dtype=torch.long)
+        tokens[0, :len(prompt_tokens)] = torch.tensor(prompt_tokens, dtype=torch.long)
+
+        prev_pos = 0
+        eos_reached = torch.tensor([False] * bsz)
+        input_text_mask = tokens != pad_id
+
+        for cur_pos in range(min_prompt_len, total_len):
+            if prev_pos == 0:
+                logits = self.model.forward(
+                    tokens[:, prev_pos:cur_pos],
+                    prev_pos,
+                    inject_vector,
+                    inject_location
+                )
+            else:
+                logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
+
+            if temperature > 0:
+                probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
+                next_token = sample_top_p(probs, top_p)
+            else:
+                next_token = torch.argmax(logits[:, -1], dim=-1)
+
+            next_token = next_token.reshape(-1)
+            # only replace token if prompt has already been generated
+            next_token = torch.where(
+                input_text_mask[:, cur_pos], tokens[:, cur_pos], next_token
+            )
+            tokens[:, cur_pos] = next_token
+
+            eos_reached |= (~input_text_mask[:, cur_pos]) & (
+                next_token == self.tokenizer.eos_id
+            )
+            prev_pos = cur_pos
+            if all(eos_reached):
+                break
+
+            yield next_token[0].item()
 
     def tokenize(
         self,

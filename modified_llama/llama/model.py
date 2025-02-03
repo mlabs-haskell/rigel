@@ -464,8 +464,9 @@ class Transformer(nn.Module):
         tokens: torch.Tensor,
         start_pos: int,
         inject_vector: torch.Tensor | None = None,
-        inject_location: int | None = None
-    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
+        inject_location: int | None = None,
+        retrieval_location: int | None = None
+    ) -> torch.Tensor:
         """
         Perform a forward pass through the Transformer model.
 
@@ -482,23 +483,31 @@ class Transformer(nn.Module):
         both_none = inject_vector is None and inject_location is None
         neither_none = inject_vector is not None and inject_location is not None
         assert both_none or neither_none
+        assert retrieval_location is None or both_none
 
+        # Get embeddings
         h = self.tok_embeddings(tokens)
-        _bsz, seqlen = tokens.shape
+        bsz, seqlen = tokens.shape
         if inject_location == 0:
             seqlen += inject_vector.shape[1]
-            h = torch.cat([inject_vector, h], dim=1)[:, :seqlen, :]
+            bos = h[:, :1, :]
+            h = h[:, 1:, :]
+            h = torch.cat([bos, inject_vector, h], dim=1)
+            h = h[:, :seqlen, :]
 
+        # Get positional embeddings
         self.freqs_cis = self.freqs_cis.to(h.device)
         freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
 
+        # Create mask for generation
         mask = None
         if seqlen > 1:
             mask = generate_mask(seqlen, 0, start_pos, h)
 
-        intermediate_tensors = []
+        # Push data through transformer stack
         for i, layer in enumerate(self.layers):
-            intermediate_tensors.append(h)
+            if i == retrieval_location:
+                return h
 
             if i == inject_location:
                 h = layer(h, start_pos, freqs_cis, mask, inject_vector)
@@ -507,7 +516,7 @@ class Transformer(nn.Module):
 
         h = self.norm(h)
         output = self.output(h).float()
-        return output, intermediate_tensors
+        return output
 
 def generate_mask(seqlen: int, inject_len: int, start_pos: int, h: torch.Tensor) -> torch.Tensor:
     mask = torch.full(
