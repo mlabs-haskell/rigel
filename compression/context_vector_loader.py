@@ -16,8 +16,13 @@ class ContextVectorDataLoader:
         split: Literal["train", "train_full", "val", "test"],
         cvdb_folder: str,
         random_seed: int = 0,
-        skip_small_batches: bool = True
+        skip_small_batches: bool = True,
+        mode: Literal['tfidf', 'sequence_similarity'] = 'tfidf'
     ):
+        if mode not in ['tfidf', 'sequence_similarity']:
+            raise ValueError(f"Unknown mode: {mode}")
+        self.mode = mode
+
         # Get TFIDFs and article titles
         # Schema:
         # {
@@ -95,16 +100,32 @@ class ContextVectorDataLoader:
             Xs.append(context_vector)
         X = torch.stack(Xs).to(torch.float32)
 
+        # Create the scorer
+        if self.mode == 'sequence_similarity':
+            scorer = sequence_similarity
+        elif self.mode == 'tfidf':
+            scorer = torch.nn.CosineSimilarity(dim=0)
+
         # Create y matrix containing similarity score between all data points
         y = torch.ones(len(batch), len(batch))
         for i in range(len(batch)):
             # Get ith document
-            Xi = X[i]
+            if self.mode == 'sequence_similarity':
+                vector_i = X[i]
+            elif self.mode == 'tfidf':
+                seq_len_i, article_title_i, section_name_i = batch[i]
+                vector_i = self.tfidfs[seq_len_i][article_title_i][section_name_i]
 
             # Iterate through all future documents and calculate similarity score
             for j in range(i + 1, len(batch)):
-                Xj = X[j]
-                score = sequence_similarity(Xi, Xj)
+                # Get jth document
+                if self.mode == 'sequence_similarity':
+                    vector_j = X[j]
+                elif self.mode == 'tfidf':
+                    seq_len_j, article_title_j, section_name_j = batch[j]
+                    vector_j = self.tfidfs[seq_len_j][article_title_j][section_name_j]
+
+                score = scorer(vector_i, vector_j)
                 y[i, j] = y[j, i] = score
 
         return X, y

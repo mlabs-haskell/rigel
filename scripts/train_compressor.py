@@ -83,13 +83,13 @@ def count_ys(
 
     pbar = tqdm.tqdm(loader)
     for _, y in pbar:
-        pbar.set_description(f"{zeros} zeros and {others} others")
         m = y != 0.0
         num_other = torch.count_nonzero(m)
         num_zeros = y.nelement() - num_other
         others += num_other
         zeros += num_zeros
         cos_sims += y.flatten().tolist()
+        pbar.set_description(f"{zeros} zeros and {others} others")
 
     plt.hist(cos_sims, 20, (0.0, 1.0))
     plt.title("Distribution of Cosine Similarities")

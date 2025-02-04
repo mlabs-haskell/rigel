@@ -47,7 +47,7 @@ class Rigel():
             compressed_cvs.reverse()
 
         # Search the database for the most relevant content
-        results = self.cv_db.search(compressed_cvs, 16)
+        results = self.cv_db.search(compressed_cvs, 4)
         content_cv = results[0].cv.to(torch.float16).unsqueeze(0)
 
         # Yield the generated text

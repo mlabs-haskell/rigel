@@ -182,7 +182,7 @@ def construct_model(
     match network_type:
         case "attention":
             network = HierarchicalAttention(**kwargs)
-            loss_fn = SequenceLoss()
+            loss_fn = SequenceLoss(2.5)
         case "linear":
             network = HierarchicalLinear(**kwargs)
             loss_fn = CosineSimilarityLoss()
@@ -258,7 +258,7 @@ def train_compression_network(
         for X, y in batch_pbar:
             # Push the data through the network
             optimizer.zero_grad()
-            batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, 1.0)
+            batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, 2.0)
 
             # Do a step of gradient descent
             batch_loss.backward()
@@ -276,7 +276,7 @@ def train_compression_network(
             total_comparisons = 0
             for X, y in batch_pbar:
                 # Evaluate the batch
-                batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, 1.0)
+                batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, 2.0)
 
                 # Increment totals
                 total_loss += batch_loss
