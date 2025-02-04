@@ -1,7 +1,7 @@
 from pathlib import Path
 import tempfile
 
-from . import IndexedFlatFile
+from wikipedia_parser import IndexedFlatFile
 
 
 def test_wikipedia_parser():

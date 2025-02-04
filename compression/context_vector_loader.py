@@ -5,6 +5,7 @@ from typing import Iterator, Literal
 
 import torch
 
+from .loss_functions import sequence_similarity
 from cv_storage import ContextVectorDB
 
 class ContextVectorDataLoader:
@@ -12,11 +13,16 @@ class ContextVectorDataLoader:
         self,
         batch_size: int,
         tfidf_file: str,
-        split: Literal["train", "val", "test"],
+        split: Literal["train", "train_full", "val", "test"],
         cvdb_folder: str,
         random_seed: int = 0,
-        skip_small_batches: bool = True
+        skip_small_batches: bool = True,
+        mode: Literal['tfidf', 'sequence_similarity'] = 'tfidf'
     ):
+        if mode not in ['tfidf', 'sequence_similarity']:
+            raise ValueError(f"Unknown mode: {mode}")
+        self.mode = mode
+
         # Get TFIDFs and article titles
         # Schema:
         # {
@@ -39,7 +45,9 @@ class ContextVectorDataLoader:
         # Determine batch selection function based on split type
         match split:
             case "train":
-                selection_function = lambda i: 0 <= i % 5 and i % 5 <= 2
+                selection_function = lambda i: i % 5 <= 2
+            case "train_full":
+                selection_function = lambda i: i % 5 <= 3
             case "val":
                 selection_function = lambda i: i % 5 == 3
             case "test":
@@ -66,7 +74,7 @@ class ContextVectorDataLoader:
                 if selection_function(counter):
                     batch = keys[i: i + batch_size]
                     if len(batch) == batch_size or not skip_small_batches:
-                        batches.append(keys[i: i + batch_size])
+                        batches.append(batch)
                 counter += 1
 
         cvdb_folder = Path(cvdb_folder)
@@ -89,23 +97,35 @@ class ContextVectorDataLoader:
         for _, article_title, section_name in batch:
             # Get the context vector
             context_vector = self.cv_db.get(article_title, section_name)
-            context_vector = torch.tensor(context_vector)
             Xs.append(context_vector)
         X = torch.stack(Xs).to(torch.float32)
 
+        # Create the scorer
+        if self.mode == 'sequence_similarity':
+            scorer = sequence_similarity
+        elif self.mode == 'tfidf':
+            scorer = torch.nn.CosineSimilarity(dim=0)
+
         # Create y matrix containing similarity score between all data points
-        cos_sim = torch.nn.CosineSimilarity(dim=0)
         y = torch.ones(len(batch), len(batch))
         for i in range(len(batch)):
             # Get ith document
-            seq_len_i, article_title_i, section_name_i = batch[i]
-            tfidf_i = self.tfidfs[seq_len_i][article_title_i][section_name_i]
+            if self.mode == 'sequence_similarity':
+                vector_i = X[i]
+            elif self.mode == 'tfidf':
+                seq_len_i, article_title_i, section_name_i = batch[i]
+                vector_i = self.tfidfs[seq_len_i][article_title_i][section_name_i]
 
             # Iterate through all future documents and calculate similarity score
             for j in range(i + 1, len(batch)):
-                seq_len_j, article_title_j, section_name_j = batch[j]
-                tfidf_j = self.tfidfs[seq_len_j][article_title_j][section_name_j]
-                score = cos_sim(tfidf_i, tfidf_j)
+                # Get jth document
+                if self.mode == 'sequence_similarity':
+                    vector_j = X[j]
+                elif self.mode == 'tfidf':
+                    seq_len_j, article_title_j, section_name_j = batch[j]
+                    vector_j = self.tfidfs[seq_len_j][article_title_j][section_name_j]
+
+                score = scorer(vector_i, vector_j)
                 y[i, j] = y[j, i] = score
 
         return X, y

@@ -27,19 +27,26 @@ def _tokenize(text: str) -> list[str]:
     # Tokenize the text, removing stop words and stemming all others
     stemmer = PorterStemmer()
     words = word_tokenize(text)
-    words = [w for w in words if w not in stopwords.words("english")]
-    words = [stemmer.stem(w) for w in words]
+    words = [
+        stemmer.stem(w)
+        for w in words
+        if w not in stopwords.words("english")
+    ]
 
     return words
 
-
-def get_tfidf(strings: Iterable[list[str]]) -> list[list[float]]:
+def get_tfidf(strings: Iterable[str], total: int | None = None) -> list[list[float]]:
+    # Tokenize the input strings
     tokens = map(lambda s: " ".join(_tokenize(s)), strings)
 
+    # Set up progress bar if we know the size of the library
+    if total is not None:
+        tokens = tqdm(tokens, leave=False, total=total)
+
+    # Perform tf-idf and turn into a list
     tfidf = TfidfVectorizer(max_df=0.9, min_df=0.05)
     vectors = tfidf.fit_transform(tokens)
     return vectors.toarray().tolist()
-
 
 def get_all_tfidf(
     contents_index_file: str,
@@ -47,6 +54,9 @@ def get_all_tfidf(
     out_file: str,
     cvdb_folder: str,
 ):
+    """Generate TFIDF vectors for all documents in the context vector db"""
+
+    # Open the context vector db
     article_contents_db = IndexedFlatFile(
         contents_index_file,
         contents_data_file,
@@ -54,6 +64,7 @@ def get_all_tfidf(
     cvdb_folder = Path(cvdb_folder)
     cv_db = ContextVectorDB(cvdb_folder)
 
+    # Get the text for each article/section
     texts_map = {}
     for article_title in tqdm(cv_db.get_article_titles(), leave=False):
         article_str = article_contents_db.get(article_title)
@@ -70,15 +81,16 @@ def get_all_tfidf(
             text = extract_section_text(section_names, article)
             if text is None:
                 raise ValueError(
-                    f"Article {article_title} down not have section {section_name}"
+                    f"Article {article_title} does not have section {section_name}"
                 )
             texts_map[(article_title, section_name)] = text
 
     # Do TFIDF vectorization
     print("Finished collecting text, performing TFIDF vectorization...")
     article_keys = list(texts_map.keys())
-    tfidfs = get_tfidf(texts_map.values())
+    tfidfs = get_tfidf(texts_map.values(), len(texts_map))
 
+    # Pair the section with the tfidf score
     document_tfidfs = {}
     for (article_title, section_name), tfidf in zip(article_keys, tfidfs):
         seq_len = cv_db.get(article_title, section_name).shape[0]
@@ -92,7 +104,6 @@ def get_all_tfidf(
     # Write to designated file
     with open(out_file, "w") as file:
         json.dump(document_tfidfs, file, indent=4)
-
 
 if __name__ == "__main__":
     fire.Fire(get_all_tfidf)

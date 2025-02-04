@@ -1,5 +1,5 @@
-from .context_vector_loader import ContextVectorDataLoader
-from .hierarchical_compression import train_compression_network
+from compression.context_vector_loader import ContextVectorDataLoader
+from compression.hierarchical_compression import train_compression_network
 
 import fire
 import matplotlib.pyplot as plt
@@ -12,12 +12,13 @@ DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 def train(
     checkpoint_file: str,
     network_type: str,
-    batch_size: int = 150,
+    batch_size: int = 200,
     cvdb_folder: str = "context_vectors",
     tfidf_file: str = "tfidf.json",
     epochs: int = 100,
     reduction_factor: int | None = None,
-    device: str = DEVICE
+    device: str = DEVICE,
+    validation: bool = True
 ):
     """Function to train a hierarchical compression network. Saves model after
     each epoch in checkpoint_file. If checkpoint_file already exists, training
@@ -25,8 +26,13 @@ def train(
     with torch.device(device):
         torch.set_default_dtype(torch.float32)
 
-        train_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'train', cvdb_folder)
-        val_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'val', cvdb_folder)
+        if validation:
+            train_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'train', cvdb_folder)
+            val_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'val', cvdb_folder)
+        else:
+            train_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'train_full', cvdb_folder)
+            val_loader = ContextVectorDataLoader(batch_size, tfidf_file, 'test', cvdb_folder)
+
         train_compression_network(
             train_loader,
             val_loader,
@@ -46,6 +52,10 @@ def min_loss(checkpoint_file: str = "model.pt"):
         epoch_losses = checkpoint['losses']
 
         if len(epoch_losses) > 0:
+            print("Losses by epoch:")
+            for i, loss in enumerate(epoch_losses):
+                print(f"{i}: {loss}")
+
             min_idx, min_loss = min(enumerate(epoch_losses), key=lambda t: t[1])
             print(f"Min loss of {min_loss} found after {min_idx + 1} epochs")
 
@@ -59,10 +69,13 @@ def min_loss(checkpoint_file: str = "model.pt"):
         print(f"Error: could not find file {checkpoint_file}")
         exit(1)
 
-def count_ys():
+def count_ys(
+    tfidf_file: str = "data/tfidf.json",
+    cv_dir: str = "data/context-vectors"
+):
     """Function to count up how many targets are 0 vs how many are not
     """
-    loader = ContextVectorDataLoader(150, "tfidf.json", 'train', "context_vectors")
+    loader = ContextVectorDataLoader(150, tfidf_file, 'train', cv_dir)
     zeros = 0
     others = 0
 
@@ -70,13 +83,13 @@ def count_ys():
 
     pbar = tqdm.tqdm(loader)
     for _, y in pbar:
-        pbar.set_description(f"{zeros} zeros and {others} others")
         m = y != 0.0
         num_other = torch.count_nonzero(m)
         num_zeros = y.nelement() - num_other
         others += num_other
         zeros += num_zeros
         cos_sims += y.flatten().tolist()
+        pbar.set_description(f"{zeros} zeros and {others} others")
 
     plt.hist(cos_sims, 20, (0.0, 1.0))
     plt.title("Distribution of Cosine Similarities")

@@ -130,10 +130,9 @@ def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
 
 
 def apply_rotary_emb(
-    xq: torch.Tensor,
-    xk: torch.Tensor,
+    input: torch.Tensor,
     freqs_cis: torch.Tensor,
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> torch.Tensor:
     """
     Apply rotary embeddings to input tensors using the given frequency tensor.
 
@@ -153,12 +152,10 @@ def apply_rotary_emb(
 
 
     """
-    xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2))
-    xk_ = torch.view_as_complex(xk.float().reshape(*xk.shape[:-1], -1, 2))
-    freqs_cis = reshape_for_broadcast(freqs_cis, xq_)
-    xq_out = torch.view_as_real(xq_ * freqs_cis).flatten(3)
-    xk_out = torch.view_as_real(xk_ * freqs_cis).flatten(3)
-    return xq_out.type_as(xq), xk_out.type_as(xk)
+    input_ = torch.view_as_complex(input.float().reshape(*input.shape[:-1], -1, 2))
+    freqs_cis = reshape_for_broadcast(freqs_cis, input_)
+    output = torch.view_as_real(input_ * freqs_cis).flatten(3)
+    return output.type_as(input)
 
 
 def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
@@ -274,7 +271,7 @@ class Attention(nn.Module):
         """
 
         # Sanity check
-        assert inject_vector is not None or start_pos == 0
+        assert inject_vector is None or start_pos == 0
 
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
@@ -283,22 +280,12 @@ class Attention(nn.Module):
         xk = xk.view(bsz, -1, self.n_local_kv_heads, self.head_dim)
         xv = xv.view(bsz, -1, self.n_local_kv_heads, self.head_dim)
 
-        # TODO
-        xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
+        xq = apply_rotary_emb(xq, freqs_cis)
+        xk = apply_rotary_emb(xk, freqs_cis)
 
         self.cache_k = self.cache_k.to(xq)
         self.cache_v = self.cache_v.to(xq)
 
-        # Inject the context vector into the k v cache
-        if inject_vector is not None:
-            _, k_len, *_ = inject_vector.shape
-            self.inject_length = k_len
-
-            ik, iv = self.wk(inject_vector), self.wv(inject_vector)
-            self.cache_k[:bsz, :k_len] = ik
-            self.cache_v[:bsz, :k_len] = iv
-
-        start_pos += self.inject_length
         self.cache_k[:bsz, start_pos : start_pos + seqlen] = xk
         self.cache_v[:bsz, start_pos : start_pos + seqlen] = xv
         keys = self.cache_k[:bsz, : start_pos + seqlen]
@@ -477,8 +464,9 @@ class Transformer(nn.Module):
         tokens: torch.Tensor,
         start_pos: int,
         inject_vector: torch.Tensor | None = None,
-        injection_location: int | None = None
-    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
+        inject_location: int | None = None,
+        retrieval_location: int | None = None
+    ) -> torch.Tensor:
         """
         Perform a forward pass through the Transformer model.
 
@@ -492,31 +480,48 @@ class Transformer(nn.Module):
         """
 
         # Quick sanity check on injects
-        both_none = inject_vector is None and injection_location is None
-        neither_none = inject_vector is not None and injection_location is not None
+        both_none = inject_vector is None and inject_location is None
+        neither_none = inject_vector is not None and inject_location is not None
         assert both_none or neither_none
+        assert retrieval_location is None or both_none
 
-        _bsz, seqlen = tokens.shape
+        # Get embeddings
         h = self.tok_embeddings(tokens)
+        bsz, seqlen = tokens.shape
+        if inject_location == 0:
+            seqlen += inject_vector.shape[1]
+            bos = h[:, :1, :]
+            h = h[:, 1:, :]
+            h = torch.cat([bos, inject_vector, h], dim=1)
+            h = h[:, :seqlen, :]
+
+        # Get positional embeddings
         self.freqs_cis = self.freqs_cis.to(h.device)
         freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
 
+        # Create mask for generation
         mask = None
         if seqlen > 1:
-            mask = torch.full(
-                (1, 1, seqlen, seqlen), float("-inf"), device=tokens.device
-            )
-            mask = torch.triu(mask, diagonal=start_pos + 1).type_as(h)
+            mask = generate_mask(seqlen, 0, start_pos, h)
 
-        intermediate_tensors = []
+        # Push data through transformer stack
         for i, layer in enumerate(self.layers):
-            intermediate_tensors.append(h)
+            if i == retrieval_location:
+                return h
 
-            if i == injection_location:
+            if i == inject_location:
                 h = layer(h, start_pos, freqs_cis, mask, inject_vector)
             else:
                 h = layer(h, start_pos, freqs_cis, mask)
 
         h = self.norm(h)
         output = self.output(h).float()
-        return output, intermediate_tensors
+        return output
+
+def generate_mask(seqlen: int, inject_len: int, start_pos: int, h: torch.Tensor) -> torch.Tensor:
+    mask = torch.full(
+        (1, 1, seqlen, seqlen + inject_len), float("-inf"), device=h.device
+    )
+    diagonal = start_pos + inject_len + 1
+    mask = torch.triu(mask, diagonal).type_as(h)
+    return mask

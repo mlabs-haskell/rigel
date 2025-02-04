@@ -7,9 +7,9 @@ import heapq
 
 import torch
 
-from indexed_binary_db import FileSpan, IndexedBinaryDB
-from indexed_binary_db.reader import BinaryReader
-from indexed_binary_db.writer import BinaryWriter
+from .indexed_binary_db import FileSpan, IndexedBinaryDB
+from .indexed_binary_db.reader import BinaryReader
+from .indexed_binary_db.writer import BinaryWriter
 
 SimilarityFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
@@ -100,6 +100,8 @@ class ContextVectorHierDB:
                 )
             )
 
+        self.root_haystack = list(enumerate(self._read_level(0)))
+
     # Public API
 
     def insert(
@@ -117,6 +119,7 @@ class ContextVectorHierDB:
 
         self._metadata_db.write(None, metadata)
         self._metadata.append(metadata)
+        self.root_haystack.append((len(self.root_haystack), vecs[0]))
         for vec, level in zip(vecs, self.levels):
             level.index.append(level.db.write(None, CV(vec)))
 
@@ -128,14 +131,14 @@ class ContextVectorHierDB:
         narrow_factor: int,
     ) -> list[SearchResult]:
         if previous_results is None:
-            haystack = list(enumerate(self._read_level(0)))
+            haystack = self.root_haystack
         else:
             haystack = [
                 (v.idx, self._read_level_vec(level_idx, v.idx))
                 for v in previous_results
             ]
         result_size = len(haystack) // narrow_factor
-        assert result_size > 0
+        result_size = max(result_size, 1)
         return get_top_k_similar(
             query,
             haystack,
@@ -175,6 +178,19 @@ class ContextVectorHierDB:
 
     def get_metadata(self, idx: int) -> CVMetadata:
         return self._metadata[idx]
+
+    def query_metadata(
+        self,
+        article_title: str | None = None,
+        section_name: str | None = None
+    ) -> list[tuple[int, CVMetadata]]:
+        return [
+            (i, md) for i, md in enumerate(self._metadata)
+            if (
+                (article_title is None or md.article_title == article_title) and
+                (section_name is None or md.section_name == section_name)
+            )
+        ]
 
     # Internals
 

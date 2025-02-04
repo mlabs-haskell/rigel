@@ -76,7 +76,7 @@ class HierarchicalAttention(nn.Module):
     def __init__(
         self,
         standard_cv_size: torch.Size = torch.Size([1024, 4096]),
-        reduction: int = 8
+        reduction: int = 4
     ):
         super().__init__()
 
@@ -182,7 +182,7 @@ def construct_model(
     match network_type:
         case "attention":
             network = HierarchicalAttention(**kwargs)
-            loss_fn = SequenceLoss()
+            loss_fn = SequenceLoss(2.5)
         case "linear":
             network = HierarchicalLinear(**kwargs)
             loss_fn = CosineSimilarityLoss()
@@ -201,13 +201,14 @@ def run_batch(
     network: HierarchicalAttention | HierarchicalLinear,
     loss_batch_size: int,
     loss_fn: nn.Module,
-    factor: float
+    level_factor: float
 ) -> torch.Tensor:
     # Push the data through the network
     compressed_vectors = network.forward(X)
 
     # Calculate loss at each level of compression
     batch_loss = torch.tensor(0.0)
+    factor = 1.0
     for compressed_vector in compressed_vectors:
         # Get the vectors for loss calculation
         for cv1_idx in range(len(compressed_vector)):
@@ -219,6 +220,7 @@ def run_batch(
 
                 # Calculate the loss
                 batch_loss += factor * loss_fn(loss_X1, loss_X2, loss_y)
+        factor *= level_factor
 
     return batch_loss
 
@@ -256,7 +258,7 @@ def train_compression_network(
         for X, y in batch_pbar:
             # Push the data through the network
             optimizer.zero_grad()
-            batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, 1.0)
+            batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, 2.0)
 
             # Do a step of gradient descent
             batch_loss.backward()
@@ -274,7 +276,7 @@ def train_compression_network(
             total_comparisons = 0
             for X, y in batch_pbar:
                 # Evaluate the batch
-                batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, 1.0)
+                batch_loss = run_batch(X, y, network, loss_batch_size, loss_fn, 2.0)
 
                 # Increment totals
                 total_loss += batch_loss

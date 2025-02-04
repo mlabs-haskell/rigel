@@ -2,8 +2,8 @@ import torch
 
 from typing import NamedTuple
 
-from indexed_binary_db.reader import BinaryReader
-from indexed_binary_db.writer import BinaryWriter
+from .indexed_binary_db.reader import BinaryReader
+from .indexed_binary_db.writer import BinaryWriter
 
 
 class CVMetadata(NamedTuple):

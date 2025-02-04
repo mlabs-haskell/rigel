@@ -1,10 +1,10 @@
 import time
 from typing import Sequence
 
-from cv_library.compressor import Compressor
-from cv_library.loss_functions import sequence_similarity
+from compression.compressor import Compressor
+from compression.loss_functions import sequence_similarity
 from cv_storage import ContextVectorDB
-import cv_hier_storage as cvhs
+import cv_storage.cv_hier_storage as cvhs
 
 from fire import Fire
 from tqdm import tqdm
@@ -13,7 +13,6 @@ import torch
 from contextlib import contextmanager
 from pathlib import Path
 
-
 @contextmanager
 def timer(description="Execution time"):
     start = time.perf_counter()
@@ -21,13 +20,10 @@ def timer(description="Execution time"):
     elapsed = time.perf_counter() - start
     print(f"{description}: {elapsed:.4f} seconds")
 
-
-# DEVICE = "cpu"
 DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
 DTYPE = torch.float32
 torch.set_default_device(DEVICE)
 torch.set_default_dtype(DTYPE)
-
 
 def get_all_headings(db: ContextVectorDB) -> list[tuple[str, str]]:
     res = []
@@ -36,7 +32,7 @@ def get_all_headings(db: ContextVectorDB) -> list[tuple[str, str]]:
             res.append((article_title, section_name))
     return res
 
-
+@torch.no_grad()
 def main(
     compressor_chkpt: str,
     cv_db_dir: str,
@@ -50,8 +46,8 @@ def main(
     for x in level_sizes:
         assert x > 0
 
-    print("Loaded.")
     compressor = Compressor(compressor_chkpt)
+    print("Loaded compressor")
 
     cv_db_path = Path(cv_db_dir)
     hier_db_path = Path(hier_db_dir)
@@ -93,16 +89,14 @@ def main(
         print("Unknown mode:", mode)
         print("Available options: generate, verify")
 
-
 def to_hierarchical(cv: torch.Tensor, compressor: Compressor) -> list[torch.Tensor]:
+    # Run cv through compressor
     cv = cv.to(dtype=DTYPE).unsqueeze(dim=0)
-
     hier_cvs = [cv, *compressor.compress(cv)]
     hier_cvs.reverse()
     hier_cvs = [tensor.squeeze(dim=0) for tensor in hier_cvs]
 
     return hier_cvs
-
 
 def generate_db(
     cv_db: ContextVectorDB,
@@ -117,7 +111,6 @@ def generate_db(
 
         metadata = cvhs.CVMetadata(article_title, section_name)
         hier_db.insert(metadata, hier_cvs)
-
 
 def verify_db(
     cv_db: ContextVectorDB,
@@ -138,9 +131,9 @@ def verify_db(
 
         closest_cvs = hier_db.search(hier_cvs, search_narrow_factor, max_level)
 
-        closest = closest_cvs[0]
-        assert torch.allclose(cv, closest.cv)
-
+        closest = closest_cvs[0].cv
+        closest = closest.to(cv)
+        assert torch.allclose(cv, closest)
 
 if __name__ == "__main__":
     Fire(main)
