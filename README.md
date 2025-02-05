@@ -30,7 +30,10 @@ The following are the various components of this project:
 ## Running with provided data
 When we deliver this project to SingularityNet, we will provide our generated database of raw context vectors, hierarchical compression model, and database of compressed context vectors. If you do not have these items, go to the next section, then return here. Once you have these items, you may continue on with these instructions.
 
-1. Open the `rigel.ipynb` notebook either in VS Code or Jupyter notebook. Set the `prompt` variable to whatever text you want completed. Run the notebook. Within a few seconds, you should see Llama finishing your prompt!
+1. Download Llama
+   - Follow the instructions in `modified_llama/README.md` to download the Llama model.
+
+2. Open the `rigel.ipynb` notebook either in VS Code or Jupyter notebook. Set the `prompt` variable to whatever text you want completed. Run the notebook. Within a few seconds, you should see Llama finishing your prompt!
 
 ## Running from scratch
 The steps in these instructions assume you are working without a database of context vectors, a hierarchical compression model, or the hierarchically compressed database of context vectors.
@@ -42,10 +45,7 @@ The steps in these instructions assume you are working without a database of con
 2. Create a list of all articles parsed by the Wikipedia parser
    - The `output/subgraph` folder in the Wikipedia parser project will now contain a series of text files, each containing a list of articles. Concatenate them and store the result in `all.txt` in this folder.
 
-3. Download Llama
-   - Follow the instructions in `modified_llama/README.md` to download the Llama model.
-
-4. Collecting context vectors
+3. Collecting context vectors
    - We will now collect context vectors created from the parsed Wikipedia articles. In this folder, run `just generate_context_vectors`. This will create a database of raw context vectors
 
 ### Training a hierarchical compression model
