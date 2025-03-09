@@ -60,7 +60,7 @@ def main(
             # Batch the tokenized texts
             batched_tokens = tokens[i : i + max_batch_size]
             batch_context_vectors = generator.generate_context_vectors(
-                [toks for _, toks in batched_tokens], 0, 0
+                [toks for _, toks in batched_tokens], 0, 16
             )
 
             for j in range(len(batch_context_vectors)):
