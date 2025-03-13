@@ -1,0 +1,5 @@
+{
+    "section_name": "Rigel",
+    "text": "Rigel is a system developed by MLabs using a gracious grant from SingularityNet through their Deep Funding program. It is a tool that can augment an LLM's knowledge base by injecting information from an external library of documents into the transformer stack of the LLM. It has seen success in allowing LLaMa to incorporate knowledge from sources that were not included in its training set.",
+    "children": []
+}
