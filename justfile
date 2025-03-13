@@ -40,7 +40,8 @@ generate_context_vectors:
 			--content_data_file ../wikipedia_parser/output/contents/data.jsonl \
 			--content_index_file ../wikipedia_parser/output/contents/index.txt \
 			--cv_db_folder ./data/context-vectors \
-			--article_list_file all.txt
+			--article_list_file all.txt \
+			--extra_docs_dir extra_docs
 
 generate_tfidf:
 	python3 -m scripts.generate_tfidf \
