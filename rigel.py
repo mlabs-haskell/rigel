@@ -33,7 +33,18 @@ class Rigel():
 
         self.max_seq_len = max_seq_len
 
-    def generate(self, query: str) -> str:
+    def generate_llama(self, query:str, temperature: float = 0.6) -> str:
+        # Tokenize the query
+        query_tokens = self.generator.tokenize(self.max_seq_len, [("", query)])
+        _, query_tokens = query_tokens[0]
+
+        # Yield the generated text
+        tokens, _ = self.generator.generate([query_tokens], temperature=temperature)
+        tokens = tokens[0]
+        output = self.generator.tokenizer.decode(tokens)
+        return " ".join([query, output])
+
+    def generate(self, query: str, verbose: bool = False, temperature: float = 0.6) -> str:
         # Tokenize the query, and generate context vectors for it
         query_tokens = self.generator.tokenize(self.max_seq_len, [("", query)])
         _, query_tokens = query_tokens[0]
@@ -49,9 +60,12 @@ class Rigel():
         # Search the database for the most relevant content
         results = self.cv_db.search(compressed_cvs, 4)
         content_cv = results[0].cv.to(torch.float16).unsqueeze(0)
+        if verbose:
+            metadata = self.cv_db.get_metadata(results[0].idx)
+            print(f"\t-- (Relevant content: {metadata.article_title})")
 
         # Yield the generated text
-        tokens, _ = self.generator.generate([query_tokens], content_cv, 0)
+        tokens, _ = self.generator.generate([query_tokens], content_cv, 0, temperature=temperature)
         tokens = tokens[0]
         output = self.generator.tokenizer.decode(tokens)
         return " ".join([query, output])
