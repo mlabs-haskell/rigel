@@ -2,6 +2,7 @@ from compression.compressor import Compressor
 from compression.loss_functions import sequence_similarity
 from cv_storage.cv_hier_storage import ContextVectorHierDB, DBConfig
 from wikipedia_parser import IndexedFlatFile
+from wikipedia_parser.articles import generate_texts
 
 from modified_llama.llama import Llama
 
@@ -18,7 +19,8 @@ class Rigel():
         cv_db_dir: str,
         compression_checkpoint_file: str,
         content_index_file: str,
-        content_data_file: str
+        content_data_file: str,
+        extra_docs_dir: str = "extra_docs"
     ):
         # Create the Llama generator
         print("Building generator...")
@@ -30,11 +32,26 @@ class Rigel():
         )
         print("Built generator!")
 
+        # Create context vector database
         torch.set_default_dtype(torch.float32)
         config = DBConfig([16, 64, 256, 1024, 4096])
         self.cv_db = ContextVectorHierDB(Path(cv_db_dir), config, sequence_similarity)
         self.compressor = Compressor(compression_checkpoint_file)
         self.articles_db = IndexedFlatFile(content_index_file, content_data_file)
+
+        # Get extra documents
+        self.extra_docs = {}
+        extra_docs_dir = Path(extra_docs_dir)
+        if extra_docs_dir.exists():
+            for path in extra_docs_dir.iterdir():
+                if path.is_file():
+                    with open(path, "r") as file:
+                        article = json.load(file)
+
+                    article_title = article["section_name"]
+                    self.extra_docs[article_title] = {}
+                    for section_name, text in generate_texts(article):
+                        self.extra_docs[article_title][section_name] = text
 
         self.max_seq_len = max_seq_len
 
@@ -71,17 +88,20 @@ class Rigel():
         # Get original content
         title = metadata.article_title
         section = metadata.section_name
-        json_str = self.articles_db.get(title)
-        obj = json.loads(json_str)
-        text = find_section(section, obj)
+        if title in self.extra_docs and section in self.extra_docs[title]:
+            text = self.extra_docs[title][section]
+        else:
+            json_str = self.articles_db.get(title)
+            obj = json.loads(json_str)
+            text = find_section(section, obj)
 
         # Generate RAG query
-        query = text + "\n" + query
-        query_tokens = self.generator.tokenize(self.max_seq_len, [("", query)])
+        new_query = text + "\n" + query
+        query_tokens = self.generator.tokenize(self.max_seq_len, [("", new_query)])
         _, query_tokens = query_tokens[0]
 
         # Yield the generated text
-        tokens, _ = self.generator.generate([query_tokens])
+        tokens, _ = self.generator.generate([query_tokens], temperature=temperature)
         tokens = tokens[0]
         output = self.generator.tokenizer.decode(tokens)
         return " ".join([query, output])
