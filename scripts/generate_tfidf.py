@@ -53,6 +53,7 @@ def get_all_tfidf(
     contents_data_file: str,
     out_file: str,
     cvdb_folder: str,
+    extra_docs_dir: str | None = None
 ):
     """Generate TFIDF vectors for all documents in the context vector db"""
 
@@ -64,13 +65,24 @@ def get_all_tfidf(
     cvdb_folder = Path(cvdb_folder)
     cv_db = ContextVectorDB(cvdb_folder)
 
+    # Load extra docs
+    extra_docs_data = {}
+    if extra_docs_dir is not None:
+        extra_docs_path = Path(extra_docs_dir)
+        for filename in extra_docs_path.iterdir():
+            with open(filename, "r") as file:
+                article_str = file.read()
+                article_obj = json.loads(article_str)
+                article_name = article_obj['section_name']
+                extra_docs_data[article_name] = article_str
+
     # Get the text for each article/section
     texts_map = {}
     for article_title in tqdm(cv_db.get_article_titles(), leave=False):
-        article_str = article_contents_db.get(article_title)
-        if article_str is None:
-            print(f"Article {article_title} could not be found in the index file")
-            continue
+        try:
+            article_str = article_contents_db.get(article_title)
+        except:
+            article_str = extra_docs_data[article_title]
 
         article = json.loads(article_str)
         for section_name in tqdm(cv_db.get_section_names(article_title), leave=False):
