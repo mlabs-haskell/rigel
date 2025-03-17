@@ -10,3 +10,4 @@ all.txt
 *.cvdb
 tfidf.json
 data/
+queries.txt
