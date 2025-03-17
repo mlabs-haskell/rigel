@@ -72,7 +72,7 @@ def main(
 
         # Get the article texts and tokenize them
         texts = list(generate_texts(article))
-        tokens = generator.tokenize(max_seq_len, texts[:1], False)
+        tokens = generator.tokenize(max_seq_len, texts, False)
 
         # Generate the context vectors for the documents
         context_vectors = []

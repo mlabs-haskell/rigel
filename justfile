@@ -48,7 +48,8 @@ generate_tfidf:
 			--contents_index_file ../wikipedia_parser/output/contents/index.txt \
 			--contents_data_file ../wikipedia_parser/output/contents/data.jsonl \
 			--out_file ./data/tfidf.json \
-			--cvdb_folder ./data/context-vectors
+			--cvdb_folder ./data/context-vectors \
+			--extra_docs_dir ./extra_docs
 
 query_generator article k:
 	python3 -m query_generator $WIKIPEDIA_LINKS_INDEX $WIKIPEDIA_LINKS_DATA "{{article}}" "{{k}}"
